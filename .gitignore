@@ -1,0 +1,30 @@
+# ── Sensitive config ──────────────────────────────────
+config.env
+
+# ── Runtime databases (auto-created on first run) ─────
+users_db.json
+github_db.json
+drive_db.json
+
+# ── Session files ─────────────────────────────────────
+*.session
+*.session-journal
+
+# ── Temp / downloads ──────────────────────────────────
+temp/
+downloads/
+
+# ── YouTube cookies (user-specific) ───────────────────
+cookies.txt
+
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+
+# ── OS ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
