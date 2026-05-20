@@ -27,13 +27,13 @@ GITHUB_DB_FILE     = "github_db.json"
 DRIVE_DB_FILE      = "drive_db.json"
 COOKIES_FILE       = "cookies.txt"
 
-MAX_SIZE_LIMIT     = 2 * 1024 * 1024 * 1024          # 2 GB
+MAX_SIZE_LIMIT     = 2 * 1024 * 1024 * 1024
 YT_DAILY_LIMIT     = 10
 GITHUB_DAILY_LIMIT = 10
 DRIVE_DAILY_LIMIT  = 10
 
-GITHUB_CHUNK_SIZE  = 95 * 1024 * 1024                # 95 MB per chunk
-GITHUB_REPO_MAX    = 5  * 1024 * 1024 * 1024         # 5 GB per repo
+GITHUB_CHUNK_SIZE  = 95 * 1024 * 1024
+GITHUB_REPO_MAX    = 5  * 1024 * 1024 * 1024
 GITHUB_MAX_REPOS   = 3
 
 TEMP_DIR = os.path.join(INSTALL_DIR, "temp")
@@ -93,7 +93,6 @@ def load_drive_db():
 def save_drive_db(d):
     with open(DRIVE_DB_FILE, 'w') as f: json.dump(d, f)
 
-# ── Auto-create databases on first run ────────────────────────────────────────
 def init_databases():
     for db_file in [DB_FILE, GITHUB_DB_FILE, DRIVE_DB_FILE]:
         if not os.path.exists(db_file):
@@ -101,6 +100,351 @@ def init_databases():
                 json.dump({}, f)
 
 init_databases()
+
+# ── Access control ────────────────────────────────────────────────────────────
+def has_access(user_id):
+    if user_id == ADMIN_ID: return True
+    users = load_users(); uid = str(user_id)
+    if uid in users:
+        d = users[uid]
+        if isinstance(d, dict):
+            if time.time() < d.get("expire", 0) or time.time() < d.get("yt_expire", 0): return True
+        else:
+            if time.time() < d: return True
+    return False
+
+def has_yt_access(user_id):
+    if user_id == ADMIN_ID: return True
+    users = load_users(); uid = str(user_id)
+    if uid in users:
+        d = users[uid]
+        if isinstance(d, dict) and time.time() < d.get("yt_expire", 0): return True
+    return False
+
+def has_github_token(user_id):
+    return str(user_id) in load_github_db()
+
+def has_drive_connected(user_id):
+    return str(user_id) in load_drive_db()
+
+def check_size_limit(size, user_id):
+    if user_id == ADMIN_ID: return True
+    return size <= MAX_SIZE_LIMIT
+
+def get_user_sem(user_id):
+    if user_id not in user_semaphores: user_semaphores[user_id] = asyncio.Semaphore(1)
+    return user_semaphores[user_id]
+
+# ── YouTube quota ─────────────────────────────────────────────────────────────
+def check_yt_quota(user_id):
+    if user_id == ADMIN_ID: return True, YT_DAILY_LIMIT
+    users = load_users(); uid = str(user_id)
+    if uid not in users: return False, 0
+    now = time.time()
+    history = [t for t in users[uid].get("yt_history", []) if now - t < 86400]
+    return YT_DAILY_LIMIT - len(history) > 0, YT_DAILY_LIMIT - len(history)
+
+def record_yt_download(user_id):
+    if user_id == ADMIN_ID: return
+    users = load_users(); uid = str(user_id)
+    if uid not in users: return
+    now = time.time()
+    history = [t for t in users[uid].get("yt_history", []) if now - t < 86400]
+    history.append(now)
+    users[uid]["yt_history"] = history
+    save_users(users)
+
+# ── UI helpers ────────────────────────────────────────────────────────────────
+async def safe_edit(msg, text, reply_markup=None):
+    try: await msg.edit_text(text, reply_markup=reply_markup)
+    except: pass
+
+async def safe_final_edit(message, bot_msg, text, reply_markup=None):
+    try: await bot_msg.edit_text(text, reply_markup=reply_markup)
+    except:
+        try: await message.reply(text, reply_markup=reply_markup)
+        except: pass
+
+def get_cancel_keyboard():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو عملیات", callback_data="cancel_task")]])
+
+def get_main_keyboard(user_id=None):
+    kb = [
+        [InlineKeyboardButton("ارسال فایل خام (بدون تغییر)", callback_data="size_raw")],
+        [InlineKeyboardButton("ارسال به صورت تک فایل RAR", callback_data="size_full")],
+        [InlineKeyboardButton("ایجاد آرشیو چند فایلی", callback_data="size_multi")],
+        [InlineKeyboardButton("پارت‌های ۱۹ مگ", callback_data="size_19"),
+         InlineKeyboardButton("پارت‌های ۴۰ مگ", callback_data="size_40"),
+         InlineKeyboardButton("پارت‌های ۹۰۰ مگ", callback_data="size_900")]
+    ]
+    if user_id and has_github_token(user_id):
+        kb.append([InlineKeyboardButton("☁️ آپلود به گیتهاب", callback_data="size_github")])
+    if user_id and has_drive_connected(user_id):
+        kb.append([InlineKeyboardButton("📂 آپلود به گوگل درایو", callback_data="size_gdrive")])
+    return InlineKeyboardMarkup(kb)
+
+def get_reply_menu(user_id):
+    keyboard = [
+        [KeyboardButton("🌐 راهنمای لینک مستقیم"), KeyboardButton("🧲 راهنمای تورنت")],
+        [KeyboardButton("📁 راهنمای کار با فایل‌های تلگرامی"), KeyboardButton("🎬 راهنمای دانلود از یوتوب")],
+        [KeyboardButton("☁️ اتصال به گیتهاب"), KeyboardButton("📂 اتصال به گوگل درایو")]
+    ]
+    if user_id == ADMIN_ID:
+        keyboard += [[KeyboardButton("➕ افزودن کاربر"), KeyboardButton("➖ حذف کاربر")],
+                     [KeyboardButton("➕ افزودن کاربر یوتوب"), KeyboardButton("📋 لیست کاربران")],
+                     [KeyboardButton("🧹 پاکسازی ربات")]]
+    else:
+        keyboard.append([KeyboardButton("🛒 خرید / تمدید اشتراک")])
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, placeholder="انتخاب کنید...")
+
+async def progress_bar(current, total, status_msg, start_time, action_text, is_cancellable=False):
+    chat_id = status_msg.chat.id
+    if is_cancellable and cancel_flags.get(chat_id): raise ValueError("CANCELLED")
+    now = time.time()
+    if now - last_update_time.get(status_msg.id, 0) < 5 and current != total: return
+    last_update_time[status_msg.id] = now
+    diff = now - start_time
+    if diff <= 0: return
+    pct = current*100/total if total > 0 else 0
+    speed = current/diff/1024
+    bar = "■"*int(pct/10) + "□"*(10-int(pct/10))
+    await safe_edit(status_msg,
+        f"وضعیت: {action_text}\n[{bar}] {pct:.1f}%\nسرعت: {speed:.1f} KB/s\n"
+        f"حجم: {current/(1024*1024):.1f}MB از {total/(1024*1024):.1f}MB",
+        get_cancel_keyboard() if is_cancellable else None)
+
+# ── Access guard middleware ────────────────────────────────────────────────────
+@app.on_message(filters.all & filters.incoming, group=-1)
+async def access_checker_middleware(client, message):
+    if not message.from_user: return
+    try:
+        msg_ts = message.date.timestamp() if hasattr(message.date,'timestamp') else float(message.date)
+    except: msg_ts = BOT_START_TIME + 1
+    if msg_ts < BOT_START_TIME:
+        message.stop_propagation(); return
+    chat_id = message.chat.id; user_id = message.from_user.id; text = message.text or ""
+    allowed = ["/start","🌐 راهنمای لینک مستقیم","🧲 راهنمای تورنت","📁 راهنمای کار با فایل‌های تلگرامی",
+               "🎬 راهنمای دانلود از یوتوب","🛒 خرید / تمدید اشتراک","☁️ اتصال به گیتهاب","📂 اتصال به گوگل درایو"]
+    if chat_id in user_states and user_states[chat_id].get("admin_action"): return
+    if text in allowed: return
+    if f"gh_{chat_id}" in user_states: return
+    if f"gd_{chat_id}" in user_states: return
+    if not has_access(user_id):
+        await message.reply(f"⛔️ **شما هیچ اشتراک فعالی ندارید!**\n\nبرای خرید:\n👤 {PURCHASE_USERNAME}\n🆔 `{user_id}`")
+        message.stop_propagation()
+
+# ── /start ────────────────────────────────────────────────────────────────────
+@app.on_message(filters.command("start"))
+async def start(client, message):
+    await message.reply(
+        "👋 **خوش آمدید به Mega Leecher!**\n\n"
+        "🤖 ابزار حرفه‌ای برای دانلود، پردازش و مدیریت فایل در تلگرام\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📦 **پردازش فایل:**\n"
+        "• تقسیم به پارت‌های ۱۹، ۴۰ یا ۹۰۰ مگابایتی\n"
+        "• فشرده‌سازی RAR با رمز عبور دلخواه\n"
+        "• ارسال فایل خام بدون تغییر\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "⬇️ **دانلود:**\n"
+        "• دانلود از لینک مستقیم\n"
+        "• دانلود از تورنت (مگنت یا .torrent)\n"
+        "• دانلود از یوتوب تا کیفیت 1080p\n"
+        "• دانلود فقط صدا (MP3)\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "☁️ **فضای ابری رایگان:**\n"
+        "• آپلود به گیتهاب — تا ۱۵ گیگابایت\n"
+        "• آپلود به گوگل درایو — تا ۱۵ گیگابایت\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📋 از منوی پایین استفاده کنید 👇",
+        reply_markup=get_reply_menu(message.from_user.id)
+    )
+
+# ── User menus ────────────────────────────────────────────────────────────────
+@app.on_message(filters.text & filters.regex("^(🌐 راهنمای لینک مستقیم|🧲 راهنمای تورنت|📁 راهنمای کار با فایل‌های تلگرامی|🎬 راهنمای دانلود از یوتوب|🛒 خرید / تمدید اشتراک)$"))
+async def handle_user_menus(client, message):
+    t = message.text; uid = message.from_user.id
+    if "لینک مستقیم" in t:
+        await message.reply(
+            "**🌐 راهنمای دانلود از لینک مستقیم:**\n\n"
+            "کافیه لینک دانلود فایل رو مستقیم داخل چت بفرستید.\n\n"
+            "📌 **چه لینک‌هایی پشتیبانی میشن؟**\n"
+            "• هر لینکی که مستقیم به یه فایل اشاره کنه\n"
+            "• ویدیو، موزیک، زیپ، PDF، APK، EXE و هر فرمت دیگه‌ای\n"
+            "• حجم دانلود تا **۲ گیگابایت**\n\n"
+            "⚙️ **بعد از دانلود:**\n"
+            "• 📤 ارسال فایل خام\n"
+            "• 🗜 فشرده‌سازی RAR با یا بدون رمز\n"
+            "• ✂️ تقسیم به پارت‌های ۱۹، ۴۰ یا ۹۰۰ مگابایتی\n"
+            "• ☁️ آپلود به گیتهاب یا گوگل درایو"
+        )
+    elif "تورنت" in t:
+        await message.reply(
+            "**🧲 راهنمای دانلود تورنت:**\n\n"
+            "۱. **لینک مگنت** — لینکی که با `magnet:?xt=` شروع میشه رو بفرستید\n"
+            "۲. **فایل .torrent** — فایل رو آپلود کنید\n\n"
+            "📌 **نکات:**\n"
+            "• اگه تورنت سید نداشته باشه دانلود کند یا ناقص میشه\n"
+            "• حجم تا **۲ گیگابایت**\n"
+            "• درخواست‌ها به صورت صف پردازش میشن"
+        )
+    elif "فایل‌های تلگرامی" in t:
+        await message.reply(
+            "**📁 راهنمای کار با فایل‌های تلگرامی:**\n\n"
+            "فایل رو **فوروارد** کنید یا مستقیم **آپلود** کنید.\n\n"
+            "📌 **قابلیت‌ها:**\n"
+            "• تمام فرمت‌ها پشتیبانی میشن\n"
+            "• فایل‌های فشرده رمزدار بدون نیاز به رمز پارت‌بندی میشن\n"
+            "• چند فایل رو میتونید در یک آرشیو RAR دریافت کنید\n"
+            "• حجم تا **۲ گیگابایت**"
+        )
+    elif "یوتوب" in t:
+        await message.reply(
+            "**🎬 راهنمای دانلود از یوتوب:**\n\n"
+            "لینک ویدیو رو مستقیم بفرستید.\n\n"
+            "📌 **کیفیت‌ها:** 360p • 480p • 720p • 1080p • 🎵 فقط صدا\n\n"
+            "🔢 سهمیه روزانه: **۱۰ ویدیو** در هر ۲۴ ساعت"
+        )
+    elif "خرید" in t:
+        users = load_users()
+        uid_str = str(uid)
+        if has_access(uid) and uid_str in users and isinstance(users[uid_str], dict):
+            expire = users[uid_str].get("expire", 0)
+            if expire > time.time():
+                rem_days = int((expire - time.time()) // 86400)
+                await message.reply(f"✅ **اشتراک فعال**\n\n⏳ روزهای باقیمانده: **{rem_days} روز**")
+            else:
+                await message.reply(f"⛔️ جهت تمدید به {PURCHASE_USERNAME} پیام دهید.\n🆔 `{uid}`")
+        else:
+            await message.reply(f"⛔️ جهت خرید اشتراک به {PURCHASE_USERNAME} پیام دهید.\n🆔 `{uid}`")
+
+# ── Cancel callback ───────────────────────────────────────────────────────────
+@app.on_callback_query(filters.regex("^cancel_task$"))
+async def cancel_callback(client, cq):
+    cancel_flags[cq.message.chat.id] = True
+    await cq.answer("⚠️ درخواست لغو ثبت شد.", show_alert=True)
+
+# ── Admin panel ───────────────────────────────────────────────────────────────
+USERS_PER_PAGE = 5
+
+async def send_user_list_page(chat_id, active_users, page, client, send_new=False, message_id=None):
+    total = len(active_users)
+    total_pages = (total + USERS_PER_PAGE - 1) // USERS_PER_PAGE
+    start = page * USERS_PER_PAGE
+    end = min(start + USERS_PER_PAGE, total)
+    page_users = active_users[start:end]
+    text = f"📋 **لیست کاربران** — صفحه {page+1} از {total_pages} (جمع: {total} نفر)\n"
+    text += "━━━━━━━━━━━━━━━━━\n\n"
+    for i, u in enumerate(page_users, start + 1):
+        text += (
+            f"**{i}.** 👤 {u['uname']}\n"
+            f"  🆔 `{u['uid']}`\n"
+            f"  ⏳ اشتراک: **{u['rd']} روز**\n"
+            f"  🎬 یوتوب: **{u['ytd']} روز**\n"
+            f"━━━━━━━━━━━━━━━━━\n"
+        )
+    buttons = []
+    row = []
+    if page > 0:
+        row.append(InlineKeyboardButton("→ قبلی", callback_data=f"ulist_{page-1}"))
+    if page < total_pages - 1:
+        row.append(InlineKeyboardButton("بعدی ←", callback_data=f"ulist_{page+1}"))
+    if row: buttons.append(row)
+    kb = InlineKeyboardMarkup(buttons) if buttons else None
+    if send_new:
+        await client.send_message(chat_id, text, reply_markup=kb)
+    else:
+        await client.edit_message_text(chat_id, message_id, text, reply_markup=kb)
+
+@app.on_callback_query(filters.regex(r"^ulist_\d+$") & filters.user(ADMIN_ID))
+async def user_list_page_callback(client, cq):
+    await cq.answer()
+    page = int(cq.data.split("_")[1])
+    users = load_users()
+    active = []
+    for uid, d in users.items():
+        if isinstance(d, dict):
+            exp = d.get("expire", 0); yt_exp = d.get("yt_expire", 0)
+            rd = int((exp - time.time()) // 86400) if exp > time.time() else 0
+            ytd = int((yt_exp - time.time()) // 86400) if yt_exp > time.time() else 0
+            if rd > 0 or ytd > 0:
+                active.append({"uid": uid, "uname": d.get("username","نامشخص"), "rd": rd, "ytd": ytd})
+    await send_user_list_page(cq.message.chat.id, active, page, client,
+                              send_new=False, message_id=cq.message.id)
+
+@app.on_message(filters.text & filters.regex("^(➕ افزودن کاربر|➕ افزودن کاربر یوتوب|📋 لیست کاربران|➖ حذف کاربر|🧹 پاکسازی ربات)$") & filters.user(ADMIN_ID))
+async def admin_menu_handler(client, message):
+    t = message.text; chat_id = message.chat.id
+    if t == "📋 لیست کاربران":
+        users = load_users()
+        active = []
+        for uid, d in users.items():
+            if isinstance(d, dict):
+                exp = d.get("expire", 0); yt_exp = d.get("yt_expire", 0)
+                rd = int((exp - time.time()) // 86400) if exp > time.time() else 0
+                ytd = int((yt_exp - time.time()) // 86400) if yt_exp > time.time() else 0
+                if rd > 0 or ytd > 0:
+                    active.append({"uid": uid, "uname": d.get("username","نامشخص"), "rd": rd, "ytd": ytd})
+        if not active:
+            await message.reply("هیچ کاربر فعالی وجود ندارد."); return
+        await send_user_list_page(message.chat.id, active, page=0, client=client, send_new=True)
+    elif t == "➕ افزودن کاربر":
+        user_states[chat_id] = {"admin_action": "wait_for_user_id"}
+        await message.reply("آیدی عددی کاربر:", reply_markup=ReplyKeyboardMarkup([["انصراف"]], resize_keyboard=True))
+    elif t == "➕ افزودن کاربر یوتوب":
+        user_states[chat_id] = {"admin_action": "wait_for_yt_user_id"}
+        await message.reply("آیدی عددی کاربر یوتوب:", reply_markup=ReplyKeyboardMarkup([["انصراف"]], resize_keyboard=True))
+    elif t == "➖ حذف کاربر":
+        user_states[chat_id] = {"admin_action": "wait_for_delete_id"}
+        await message.reply("آیدی عددی کاربر:", reply_markup=ReplyKeyboardMarkup([["انصراف"]], resize_keyboard=True))
+    elif t == "🧹 پاکسازی ربات":
+        for f in os.listdir(TEMP_DIR):
+            fp = os.path.join(TEMP_DIR, f)
+            try:
+                if os.path.isfile(fp): os.unlink(fp)
+                elif os.path.isdir(fp): shutil.rmtree(fp)
+            except: pass
+        await message.reply("✅ پاکسازی شد.", reply_markup=get_reply_menu(ADMIN_ID))
+
+@app.on_message(filters.text & filters.user(ADMIN_ID))
+async def admin_states_handler(client, message):
+    chat_id = message.chat.id; t = message.text
+    state = user_states.get(chat_id, {}).get("admin_action")
+    if t == "انصراف" and state:
+        user_states.pop(chat_id, None); await message.reply("لغو شد.", reply_markup=get_reply_menu(ADMIN_ID)); return
+    if state == "wait_for_user_id":
+        user_states[chat_id]["target_user_id"] = t; user_states[chat_id]["admin_action"] = "wait_for_days"
+        await message.reply("تعداد روزهای اشتراک:")
+    elif state == "wait_for_days":
+        user_states[chat_id]["target_days"] = int(t); user_states[chat_id]["admin_action"] = "wait_for_username"
+        await message.reply("آیدی نوشتاری:")
+    elif state == "wait_for_username":
+        tid = user_states[chat_id]["target_user_id"]; days = user_states[chat_id]["target_days"]
+        exp = time.time()+days*86400; users = load_users()
+        if tid not in users: users[tid] = {"expire":exp,"username":t,"yt_expire":0}
+        else: users[tid]["expire"]=exp; users[tid]["username"]=t
+        save_users(users); user_states.pop(chat_id, None)
+        await message.reply(f"✅ اضافه شد. اعتبار: {days} روز.", reply_markup=get_reply_menu(ADMIN_ID))
+    elif state == "wait_for_yt_user_id":
+        user_states[chat_id]["target_user_id"] = t; user_states[chat_id]["admin_action"] = "wait_for_yt_days"
+        await message.reply("تعداد روزهای اشتراک یوتوب:")
+    elif state == "wait_for_yt_days":
+        user_states[chat_id]["target_days"] = int(t); user_states[chat_id]["admin_action"] = "wait_for_yt_username"
+        await message.reply("آیدی نوشتاری:")
+    elif state == "wait_for_yt_username":
+        tid = user_states[chat_id]["target_user_id"]; days = user_states[chat_id]["target_days"]
+        exp = time.time()+days*86400; users = load_users()
+        if tid not in users: users[tid] = {"expire":0,"username":t,"yt_expire":exp}
+        else: users[tid]["yt_expire"]=exp; users[tid]["username"]=t
+        save_users(users); user_states.pop(chat_id, None)
+        await message.reply(f"✅ دسترسی یوتوب. اعتبار: {days} روز.", reply_markup=get_reply_menu(ADMIN_ID))
+    elif state == "wait_for_delete_id":
+        tid = t.strip(); users = load_users()
+        if tid in users:
+            del users[tid]; save_users(users); user_states.pop(chat_id, None)
+            await message.reply("✅ دسترسی لغو شد.", reply_markup=get_reply_menu(ADMIN_ID))
+        else:
+            user_states.pop(chat_id, None); await message.reply("❌ یافت نشد.", reply_markup=get_reply_menu(ADMIN_ID))
+    else: message.continue_propagation()
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
