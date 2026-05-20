@@ -446,6 +446,178 @@ async def admin_states_handler(client, message):
             user_states.pop(chat_id, None); await message.reply("❌ یافت نشد.", reply_markup=get_reply_menu(ADMIN_ID))
     else: message.continue_propagation()
 
+
+# ── File size helpers ─────────────────────────────────────────────────────────
+def fmt_size(s):
+    if not s: return "نامشخص"
+    mb = s/(1024*1024)
+    return f"{s//1024}KB" if mb < 1 else f"~{mb:.0f}MB"
+
+# ── Media handler ─────────────────────────────────────────────────────────────
+@app.on_message(filters.document | filters.video | filters.audio | filters.voice)
+async def handle_media(client, message):
+    chat_id = message.chat.id; user_id = message.from_user.id
+    media = message.document or message.video or message.audio or message.voice
+    if not check_size_limit(getattr(media, "file_size", 0), chat_id):
+        await message.reply("❌ فایل‌های بیشتر از 2 گیگابایت مجاز نیست."); return
+    file_name = getattr(media, "file_name", None) or f"file_{int(time.time())}"
+    if file_name.lower().endswith(".torrent"):
+        await handle_torrent_download(client, message, message, is_magnet=False); return
+    bot_msg = await message.reply("⏳ در حال پردازش...", quote=True)
+    if chat_id in user_multi_tasks:
+        user_multi_tasks[chat_id]["items"].append({"type": "media", "source": message, "file_name": file_name})
+        await safe_final_edit(message, bot_msg,
+            f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
+            InlineKeyboardMarkup([[InlineKeyboardButton("شروع عملیات", callback_data="multi_start")]])); return
+    await safe_final_edit(message, bot_msg, f"فایل دریافت شد: `{file_name}`", get_main_keyboard(user_id))
+    user_states[f"{chat_id}_{bot_msg.id}"] = {"type": "media", "source": message, "file_name": file_name}
+
+# ── Size callback ─────────────────────────────────────────────────────────────
+@app.on_callback_query(filters.regex("^size_"))
+async def size_callback(client, cq):
+    await cq.answer()
+    chat_id = cq.message.chat.id; action = cq.data.split("_")[1]
+    state_key = f"{chat_id}_{cq.message.id}"
+    if state_key not in user_states:
+        await safe_edit(cq.message, "❌ فایل منقضی شده، دوباره ارسال کنید."); return
+    user_states[state_key]["action"] = action
+    if action == "raw":
+        await execute_with_queue(client, chat_id, state_key)
+    elif action == "github":
+        await execute_with_queue(client, chat_id, state_key)
+    elif action == "gdrive":
+        await execute_with_queue(client, chat_id, state_key)
+    elif action == "multi":
+        user_multi_tasks[chat_id] = {"state_key": state_key, "items": [user_states.pop(state_key)]}
+        await safe_edit(cq.message, "فایل اول اضافه شد. بعدی‌ها را فوروارد کنید.",
+            InlineKeyboardMarkup([[InlineKeyboardButton("شروع آرشیو", callback_data="multi_start")]]))
+    else:
+        await safe_edit(cq.message, "رمز گذاشته شود؟", InlineKeyboardMarkup([
+            [InlineKeyboardButton("بدون رمز", callback_data=f"pass_none_{cq.message.id}")],
+            [InlineKeyboardButton("تعیین رمز عبور", callback_data=f"pass_set_{cq.message.id}")]
+        ]))
+
+@app.on_callback_query(filters.regex("^multi_start$"))
+async def multi_start_callback(client, cq):
+    await cq.answer()
+    chat_id = cq.message.chat.id
+    if chat_id not in user_multi_tasks: return
+    state_key = user_multi_tasks[chat_id]["state_key"]
+    user_states[state_key] = {"action": "multi", "multi_items": user_multi_tasks[chat_id]["items"]}
+    del user_multi_tasks[chat_id]
+    await safe_edit(cq.message, "رمز عبور؟", InlineKeyboardMarkup([
+        [InlineKeyboardButton("بدون رمز", callback_data=f"pass_none_{cq.message.id}")],
+        [InlineKeyboardButton("تعیین رمز", callback_data=f"pass_set_{cq.message.id}")]
+    ]))
+
+@app.on_callback_query(filters.regex("^pass_"))
+async def password_callback(client, cq):
+    await cq.answer()
+    chat_id = cq.message.chat.id
+    parts = cq.data.split("_"); action = parts[1]; msg_id = parts[2]
+    state_key = f"{chat_id}_{msg_id}"
+    if state_key not in user_states: return
+    if action == "none":
+        user_states[state_key]["password"] = None
+        await execute_with_queue(client, chat_id, state_key)
+    else:
+        user_states[state_key]["awaiting_password"] = True
+        await client.send_message(chat_id, "رمز را بفرستید:", reply_markup=ForceReply(selective=True))
+
+@app.on_message(filters.text & filters.reply)
+async def get_password_input(client, message):
+    chat_id = message.chat.id
+    for key, data in user_states.items():
+        if str(key).startswith(f"{chat_id}_") and data.get("awaiting_password"):
+            data["password"] = message.text; data["awaiting_password"] = False
+            await execute_with_queue(client, chat_id, key); break
+
+# ── Queue & processing ────────────────────────────────────────────────────────
+async def execute_with_queue(client, chat_id, state_key):
+    data = user_states.pop(state_key, None)
+    if not data: return
+    sem = get_user_sem(chat_id)
+    if sem.locked() and chat_id != ADMIN_ID:
+        await client.send_message(chat_id, "⏳ درخواست در صف قرار گرفت...")
+    if chat_id == ADMIN_ID:
+        asyncio.create_task(core_processing(client, chat_id, data))
+    else:
+        async with sem:
+            await core_processing(client, chat_id, data)
+
+async def core_processing(client, chat_id, data):
+    action = data.get("action"); password = data.get("password")
+    chat_base = os.path.join(TEMP_DIR, f"{chat_id}_{int(time.time())}")
+    in_dir = os.path.join(chat_base, "in"); out_dir = os.path.join(chat_base, "out")
+    os.makedirs(in_dir, exist_ok=True); os.makedirs(out_dir, exist_ok=True)
+    status_msg = await client.send_message(chat_id, "در حال شروع پردازش...")
+    cancel_flags[chat_id] = False; uploaded_ok = False
+
+    try:
+        target_path = ""
+
+        # ── دریافت فایل تلگرامی ───────────────────────────────────────────────
+        if data["type"] == "local_path":
+            target_path = data["source"]
+        elif data["type"] == "media":
+            target_path = os.path.join(in_dir, data["file_name"])
+            await client.download_media(data["source"], file_name=target_path,
+                progress=progress_bar, progress_args=(status_msg, time.time(), "دریافت فایل", True))
+
+        # ── ارسال ────────────────────────────────────────────────────────────
+        if action == "raw":
+            ext = os.path.splitext(target_path)[1].lower()
+            await safe_edit(status_msg, "در حال ارسال...")
+            if ext in ('.mp4', '.mkv', '.mov', '.avi', '.webm'):
+                await client.send_video(chat_id, target_path, progress=progress_bar,
+                    progress_args=(status_msg, time.time(), "ارسال ویدیو", False))
+            elif ext in ('.mp3', '.m4a', '.ogg', '.opus', '.flac', '.wav'):
+                await client.send_audio(chat_id, target_path, progress=progress_bar,
+                    progress_args=(status_msg, time.time(), "ارسال صدا", False))
+            else:
+                await client.send_document(chat_id, target_path, progress=progress_bar,
+                    progress_args=(status_msg, time.time(), "ارسال فایل", False))
+            uploaded_ok = True
+
+        elif action not in ("github", "gdrive"):
+            final_source = target_path
+            await safe_edit(status_msg, "در حال بسته‌بندی RAR...")
+            archive_path = os.path.join(out_dir, "Mega-Leecher.rar")
+            cmd = ["rar", "a", "-ep1", "-m0", "-rr5p", archive_path]
+            if action not in ["full", "multi"]: cmd.append(f"-v{action}m")
+            if password: cmd.append(f"-hp{password}")
+            if action == "multi":
+                cmd += [os.path.join(in_dir, f) for f in os.listdir(in_dir)]
+            elif os.path.isdir(final_source):
+                cmd.append(f"{final_source}/*")
+            else:
+                cmd.append(final_source)
+            proc = await asyncio.create_subprocess_exec(*cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            await proc.communicate()
+            parts = sorted([os.path.join(out_dir, f) for f in os.listdir(out_dir)])
+            for i, p in enumerate(parts, 1):
+                cap = f"پارت {i} از {len(parts)}" if len(parts) > 1 else "فایل نهایی"
+                await client.send_document(chat_id, p, caption=cap, progress=progress_bar,
+                    progress_args=(status_msg, time.time(), f"ارسال {i}/{len(parts)}", False))
+            uploaded_ok = True
+
+        await safe_final_edit(status_msg, status_msg, "✅ عملیات با موفقیت تمام شد.")
+
+    except ValueError as e:
+        msgs = {
+            "CANCELLED": "🚫 عملیات لغو شد.",
+            "SIZE_LIMIT": "❌ فایل بیشتر از 2 گیگابایت است."
+        }
+        await safe_edit(status_msg, msgs.get(str(e), f"❌ خطا: {e}"))
+    except Exception as e:
+        await client.send_message(chat_id, f"❌ خطا: `{e}`")
+    finally:
+        shutil.rmtree(chat_base, ignore_errors=True)
+        if "chat_temp_dir" in data:
+            shutil.rmtree(data["chat_temp_dir"], ignore_errors=True)
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run()
