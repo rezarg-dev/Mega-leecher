@@ -661,7 +661,7 @@ async def core_processing(client, chat_id, data):
             shutil.rmtree(data["chat_temp_dir"], ignore_errors=True)
 
 # ── Direct link download ──────────────────────────────────────────────────────
-@app.on_message(filters.text & filters.regex(r"^https?://"))
+@app.on_message(filters.text & filters.regex(r"^https?://|^magnet:\?xt=urn:btih:"))
 async def handle_text_links(client, message):
     chat_id = message.chat.id; user_id = message.from_user.id
     text = message.text.strip()
@@ -675,6 +675,7 @@ async def handle_text_links(client, message):
 
     if is_torrent:
         await handle_torrent_download(client, message, text, is_magnet=True); return
+
 
     if is_youtube:
         await message.reply("⚠️ برای دانلود از یوتوب لطفاً لینک را مستقیم ارسال کنید.\n"
@@ -720,6 +721,75 @@ async def handle_text_links(client, message):
         f"نام فایل: `{file_name}`", get_main_keyboard(user_id))
     user_states[f"{chat_id}_{bot_msg.id}"] = {
         "type": "url", "source": final_url, "file_name": file_name}
+
+# ── Torrent download ──────────────────────────────────────────────────────────
+async def handle_torrent_download(client, message, source, is_magnet=True):
+    chat_id = message.chat.id
+    sem = get_user_sem(chat_id)
+    status_msg = await message.reply("در حال دریافت متادیتا...",
+        reply_markup=get_cancel_keyboard(), quote=True)
+    if chat_id == ADMIN_ID:
+        await _execute_torrent(client, message, source, is_magnet, status_msg)
+    else:
+        async with sem:
+            await safe_edit(status_msg, "در حال دریافت متادیتا...",
+                reply_markup=get_cancel_keyboard())
+            await _execute_torrent(client, message, source, is_magnet, status_msg)
+
+async def _execute_torrent(client, message, source, is_magnet, status_msg):
+    chat_id = message.chat.id; user_id = message.from_user.id
+    cancel_flags[chat_id] = False
+    chat_temp_dir = os.path.join(TEMP_DIR, f"torrent_{chat_id}_{int(time.time())}")
+    os.makedirs(chat_temp_dir, exist_ok=True)
+    ses = lt.session()
+
+    if is_magnet:
+        handle = lt.add_magnet_uri(ses, source, {"save_path": chat_temp_dir})
+    else:
+        tp = await message.download(
+            file_name=os.path.join(chat_temp_dir, "task.torrent"))
+        handle = ses.add_torrent(
+            {'ti': lt.torrent_info(tp), 'save_path': chat_temp_dir})
+
+    # انتظار برای دریافت متادیتا
+    while not handle.status().has_metadata:
+        if cancel_flags.get(chat_id):
+            ses.remove_torrent(handle)
+            shutil.rmtree(chat_temp_dir, ignore_errors=True)
+            await safe_edit(status_msg, "🚫 لغو شد."); return
+        await asyncio.sleep(1)
+
+    if not check_size_limit(handle.status().total_wanted, chat_id):
+        ses.remove_torrent(handle)
+        shutil.rmtree(chat_temp_dir, ignore_errors=True)
+        await safe_edit(status_msg, "❌ حجم تورنت بیشتر از 2 گیگابایت است."); return
+
+    # دانلود
+    while not handle.status().is_seeding:
+        if cancel_flags.get(chat_id):
+            ses.remove_torrent(handle)
+            shutil.rmtree(chat_temp_dir, ignore_errors=True)
+            await safe_edit(status_msg, "🚫 لغو شد."); return
+        s = handle.status(); pct = s.progress * 100
+        bar = "■"*int(pct/10) + "□"*(10-int(pct/10))
+        await safe_edit(status_msg,
+            f"وضعیت: دانلود تورنت\n[{bar}] {pct:.1f}%\n"
+            f"سرعت: {s.download_rate/1024:.1f} KB/s\n"
+            f"حجم: {s.total_wanted_done/(1024*1024):.1f}MB از "
+            f"{s.total_wanted/(1024*1024):.1f}MB\n"
+            f"سید: {s.num_seeds} | پیر: {s.num_peers}",
+            reply_markup=get_cancel_keyboard())
+        await asyncio.sleep(5)
+
+    items = [f for f in os.listdir(chat_temp_dir) if f != "task.torrent"]
+    final_path = os.path.join(chat_temp_dir, items[0])
+    state_key = f"{chat_id}_{status_msg.id}"
+    user_states[state_key] = {
+        "type": "local_path", "source": final_path,
+        "file_name": items[0], "chat_temp_dir": chat_temp_dir
+    }
+    await safe_final_edit(message, status_msg,
+        "✅ آماده پردازش.", get_main_keyboard(user_id))
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
