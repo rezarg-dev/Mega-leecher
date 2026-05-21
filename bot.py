@@ -556,13 +556,55 @@ async def core_processing(client, chat_id, data):
     try:
         target_path = ""
 
-        # ── دریافت فایل تلگرامی ───────────────────────────────────────────────
+        # ── بررسی سهمیه قبل از دانلود ────────────────────────────────────────────
+        if action == "gdrive":
+            db = load_drive_db(); uid = str(chat_id)
+            if uid not in db:
+                await safe_edit(status_msg, "❌ حساب گوگل متصل نشده.
+از منوی 📂 اتصال به گوگل درایو متصل شوید."); return
+            allowed_d, remaining_d = check_drive_quota(chat_id)
+            if not allowed_d:
+                await safe_edit(status_msg,
+                    f"⛔️ **سهمیه روزانه آپلود به گوگل درایو تمام شده!**
+"
+                    f"هر کاربر روزانه {DRIVE_DAILY_LIMIT} آپلود مجاز است."); return
+        elif action == "github":
+            db = load_github_db(); uid = str(chat_id)
+            if uid not in db:
+                await safe_edit(status_msg, "❌ توکن گیتهاب تنظیم نشده.
+از منوی ☁️ اتصال به گیتهاب توکن وارد کنید."); return
+            allowed_gh, remaining_gh = check_gh_quota(chat_id)
+            if not allowed_gh:
+                await safe_edit(status_msg,
+                    f"⛔️ **سهمیه روزانه آپلود به گیتهاب تمام شده!**
+"
+                    f"هر کاربر روزانه {GITHUB_DAILY_LIMIT} آپلود مجاز است.
+"
+                    "سهمیه به صورت rolling در ۲۴ ساعت تجدید می‌شود."); return
+
+        # ── دریافت فایل ──────────────────────────────────────────────────────────
         if data["type"] == "local_path":
             target_path = data["source"]
         elif data["type"] == "media":
             target_path = os.path.join(in_dir, data["file_name"])
             await client.download_media(data["source"], file_name=target_path,
                 progress=progress_bar, progress_args=(status_msg, time.time(), "دریافت فایل", True))
+        elif data["type"] == "url":
+            target_path = os.path.join(in_dir, data["file_name"])
+            async with aiohttp.ClientSession(headers=BROWSER_HEADERS) as s:
+                async with s.get(data["source"], allow_redirects=True) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get('content-length', 0))
+                    if not check_size_limit(total, chat_id): raise ValueError("SIZE_LIMIT")
+                    cur = 0; st = time.time()
+                    with open(target_path, 'wb') as f:
+                        async for c in r.content.iter_chunked(1024 * 1024):
+                            if cancel_flags.get(chat_id): raise ValueError("CANCELLED")
+                            cur += len(c)
+                            if not check_size_limit(cur, chat_id): raise ValueError("SIZE_LIMIT")
+                            f.write(c)
+                            if total > 0:
+                                await progress_bar(cur, total, status_msg, st, "دریافت فایل", True)
 
         # ── ارسال ────────────────────────────────────────────────────────────
         if action == "raw":
@@ -617,6 +659,67 @@ async def core_processing(client, chat_id, data):
         shutil.rmtree(chat_base, ignore_errors=True)
         if "chat_temp_dir" in data:
             shutil.rmtree(data["chat_temp_dir"], ignore_errors=True)
+
+# ── Direct link download ──────────────────────────────────────────────────────
+@app.on_message(filters.text & filters.regex(r"^https?://"))
+async def handle_text_links(client, message):
+    chat_id = message.chat.id; user_id = message.from_user.id
+    text = message.text.strip()
+
+    # نادیده گرفتن localhost (کد OAuth گوگل درایو)
+    if "localhost" in text.lower():
+        return
+
+    is_youtube  = "youtube.com" in text.lower() or "youtu.be" in text.lower()
+    is_torrent  = text.startswith("magnet:")
+
+    if is_torrent:
+        await handle_torrent_download(client, message, text, is_magnet=True); return
+
+    if is_youtube:
+        await message.reply("⚠️ برای دانلود از یوتوب لطفاً لینک را مستقیم ارسال کنید.\n"
+                            "پشتیبانی کامل یوتوب در نسخه بعدی اضافه می‌شود.")
+        return
+
+    bot_msg = await message.reply("⏳ در حال استخراج لینک...", quote=True)
+    file_name = f"file_{int(time.time())}.dat"
+    final_url  = text
+    is_html    = False
+
+    try:
+        async with aiohttp.ClientSession(headers=BROWSER_HEADERS) as s:
+            async with s.head(final_url, allow_redirects=True) as r:
+                size = int(r.headers.get('Content-Length', 0))
+                if size > 0 and not check_size_limit(size, chat_id):
+                    await safe_final_edit(message, bot_msg,
+                        "❌ حجم فایل بیشتر از 2 گیگابایت است."); return
+                if 'text/html' in r.headers.get('Content-Type', ''):
+                    is_html = True
+                cd = r.headers.get('Content-Disposition', '')
+                if cd:
+                    m = re.search(r'filename\*?=(?:UTF-8\'\')?([^;]+)', cd, re.IGNORECASE)
+                    if m: file_name = urllib.parse.unquote(m.group(1).strip('"\''))
+                if file_name.startswith("file_") and not is_html:
+                    en = urllib.parse.unquote(
+                        os.path.basename(urllib.parse.urlparse(final_url).path))
+                    if en: file_name = en
+    except: pass
+
+    if is_html:
+        await safe_final_edit(message, bot_msg, "❌ لینک مستقیم یافت نشد."); return
+
+    if chat_id in user_multi_tasks:
+        user_multi_tasks[chat_id]["items"].append(
+            {"type": "url", "source": final_url, "file_name": file_name})
+        await safe_final_edit(message, bot_msg,
+            f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
+            InlineKeyboardMarkup([[InlineKeyboardButton(
+                "شروع عملیات", callback_data="multi_start")]])); return
+
+    await safe_final_edit(message, bot_msg,
+        f"نام فایل: `{file_name}`", get_main_keyboard(user_id))
+    user_states[f"{chat_id}_{bot_msg.id}"] = {
+        "type": "url", "source": final_url, "file_name": file_name}
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
