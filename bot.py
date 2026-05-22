@@ -605,6 +605,25 @@ async def core_processing(client, chat_id, data):
                             f.write(c)
                             if total > 0:
                                 await progress_bar(cur, total, status_msg, st, "دریافت فایل", True)
+        elif data["type"] == "youtube":
+            yt_quality = data.get("yt_quality", "720")
+            is_audio   = yt_quality == "mp3"
+            label      = "صدا" if is_audio else f"{yt_quality}p"
+            await safe_edit(status_msg, f"در حال دانلود ({label})...", reply_markup=get_cancel_keyboard())
+            if is_audio:
+                target_path = os.path.join(in_dir, data["file_name"] + ".m4a")
+                cmd = ["yt-dlp", "-f", "bestaudio[ext=m4a]/bestaudio", "-o", target_path]
+            else:
+                target_path = os.path.join(in_dir, data["file_name"] + ".mp4")
+                cmd = ["yt-dlp", "-f",
+                       f"bestvideo[height<={yt_quality}]+bestaudio/bestvideo+bestaudio/best",
+                       "--merge-output-format", "mp4", "-o", target_path]
+            if os.path.exists(COOKIES_FILE): cmd += ["--cookies", COOKIES_FILE]
+            cmd.append(data["source"])
+            if await run_yt_cmd(cmd, chat_id) != 0:
+                raise ValueError("YOUTUBE_DOWNLOAD_FAILED")
+            if os.path.exists(target_path) and not check_size_limit(os.path.getsize(target_path), chat_id):
+                raise ValueError("SIZE_LIMIT")
 
         # ── ارسال ────────────────────────────────────────────────────────────
         if action == "raw":
@@ -645,12 +664,15 @@ async def core_processing(client, chat_id, data):
                     progress_args=(status_msg, time.time(), f"ارسال {i}/{len(parts)}", False))
             uploaded_ok = True
 
+        if uploaded_ok and data.get("type") == "youtube":
+            record_yt_download(chat_id)
         await safe_final_edit(status_msg, status_msg, "✅ عملیات با موفقیت تمام شد.")
 
     except ValueError as e:
         msgs = {
-            "CANCELLED": "🚫 عملیات لغو شد.",
-            "SIZE_LIMIT": "❌ فایل بیشتر از 2 گیگابایت است."
+            "CANCELLED":              "🚫 عملیات لغو شد.",
+            "SIZE_LIMIT":             "❌ فایل بیشتر از 2 گیگابایت است.",
+            "YOUTUBE_DOWNLOAD_FAILED":"❌ دانلود از یوتوب با خطا مواجه شد."
         }
         await safe_edit(status_msg, msgs.get(str(e), f"❌ خطا: {e}"))
     except Exception as e:
@@ -678,8 +700,52 @@ async def handle_text_links(client, message):
 
 
     if is_youtube:
-        await message.reply("⚠️ برای دانلود از یوتوب لطفاً لینک را مستقیم ارسال کنید.\n"
-                            "پشتیبانی کامل یوتوب در نسخه بعدی اضافه می‌شود.")
+        if not has_yt_access(user_id):
+            await message.reply("⛔️ شما اشتراک ویژه یوتوب ندارید."); return
+        allowed, remaining = check_yt_quota(user_id)
+        if not allowed:
+            await message.reply("⛔️ **سهمیه روزانه تمام شده!**\nبه سقف ۱۰ ویدیو در ۲۴ ساعت رسیده‌اید."); return
+        bot_msg = await message.reply("⏳ در حال استخراج اطلاعات...", quote=True)
+        try:
+            async def extract_info():
+                cmd = ["yt-dlp",
+                       "--print", "%(title)s",
+                       "--print", "%(formats.:.{height,filesize,filesize_approx,vcodec,acodec})j",
+                       "-q", "--no-warnings"]
+                if os.path.exists(COOKIES_FILE): cmd += ["--cookies", COOKIES_FILE]
+                cmd.append(text)
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                try:
+                    out, err = await asyncio.wait_for(proc.communicate(), timeout=60)
+                except asyncio.TimeoutError:
+                    proc.kill(); raise Exception("timeout")
+                if proc.returncode != 0: raise Exception(err.decode()[:200])
+                lines = out.decode().strip().split("\n")
+                title   = lines[0] if lines else "youtube_video"
+                formats = json.loads(lines[1]) if len(lines) > 1 else []
+                return title, formats
+            title, formats = await extract_info()
+            file_name = "".join(c for c in title if c.isalnum() or c in (" ", ".", "_", "-")).strip()
+            s360  = fmt_size(get_quality_size(formats, 360))
+            s480  = fmt_size(get_quality_size(formats, 480))
+            s720  = fmt_size(get_quality_size(formats, 720))
+            s1080 = fmt_size(get_quality_size(formats, 1080))
+            saudio= fmt_size(get_audio_size(formats))
+            del formats
+            state_key = f"{chat_id}_{bot_msg.id}"
+            user_states[state_key] = {"type": "youtube_pending", "source": text, "file_name": file_name}
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"🎥 360p ({s360})",  callback_data="ytqual_360"),
+                 InlineKeyboardButton(f"🎥 480p ({s480})",  callback_data="ytqual_480")],
+                [InlineKeyboardButton(f"🎥 720p ({s720})",  callback_data="ytqual_720"),
+                 InlineKeyboardButton(f"🎥 1080p ({s1080})",callback_data="ytqual_1080")],
+                [InlineKeyboardButton(f"🎵 فقط صدا ({saudio})", callback_data="ytqual_mp3")]
+            ])
+            await safe_final_edit(message, bot_msg,
+                f"🎬 **{title}**\n\n🔢 سهمیه باقیمانده: **{remaining} ویدیو**\n\nکیفیت را انتخاب کنید:", kb)
+        except Exception as e:
+            await safe_final_edit(message, bot_msg, f"❌ خطا: `{e}`")
         return
 
     bot_msg = await message.reply("⏳ در حال استخراج لینک...", quote=True)
@@ -790,6 +856,61 @@ async def _execute_torrent(client, message, source, is_magnet, status_msg):
     }
     await safe_final_edit(message, status_msg,
         "✅ آماده پردازش.", get_main_keyboard(user_id))
+
+# ── YouTube quality helpers ───────────────────────────────────────────────────
+def get_quality_size(formats, max_height):
+    vf = [f for f in formats if f.get('vcodec','none') != 'none'
+          and f.get('acodec','none') == 'none' and 0 < (f.get('height') or 0) <= max_height]
+    af = [f for f in formats if f.get('acodec','none') != 'none'
+          and f.get('vcodec','none') == 'none']
+    if not vf: return 0
+    bv = max(vf, key=lambda f: (f.get('height',0),
+             f.get('filesize') or f.get('filesize_approx') or 0))
+    ba = max(af, key=lambda f: f.get('filesize') or f.get('filesize_approx') or 0) if af else None
+    return ((bv.get('filesize') or bv.get('filesize_approx') or 0) +
+            ((ba.get('filesize') or ba.get('filesize_approx') or 0) if ba else 0))
+
+def get_audio_size(formats):
+    af = [f for f in formats if f.get('acodec','none') != 'none'
+          and f.get('vcodec','none') == 'none']
+    if not af: return 0
+    b = max(af, key=lambda f: f.get('filesize') or f.get('filesize_approx') or 0)
+    return b.get('filesize') or b.get('filesize_approx') or 0
+
+# ── YouTube quality callback ──────────────────────────────────────────────────
+@app.on_callback_query(filters.regex("^ytqual_"))
+async def yt_quality_callback(client, cq):
+    await cq.answer()
+    chat_id = cq.message.chat.id; user_id = cq.from_user.id
+    quality   = cq.data.split("_")[1]
+    state_key = f"{chat_id}_{cq.message.id}"
+    if state_key not in user_states or user_states[state_key].get("type") != "youtube_pending":
+        await safe_edit(cq.message, "❌ درخواست منقضی شده است."); return
+    allowed, _ = check_yt_quota(user_id)
+    if not allowed:
+        await safe_edit(cq.message, "⛔️ سهمیه روزانه تمام شده!"); return
+    user_states[state_key]["type"]       = "youtube"
+    user_states[state_key]["yt_quality"] = quality
+    file_name = user_states[state_key]["file_name"]
+    if chat_id in user_multi_tasks:
+        user_multi_tasks[chat_id]["items"].append(user_states.pop(state_key))
+        await safe_edit(cq.message,
+            f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
+            InlineKeyboardMarkup([[InlineKeyboardButton(
+                "شروع عملیات", callback_data="multi_start")]])); return
+    label = "صدا" if quality == "mp3" else f"{quality}p"
+    await safe_edit(cq.message,
+        f"فایل یوتوب: `{file_name}`\nکیفیت: **{label}**", get_main_keyboard(user_id))
+
+# ── yt-dlp runner ─────────────────────────────────────────────────────────────
+async def run_yt_cmd(cmd, chat_id):
+    proc = await asyncio.create_subprocess_exec(*cmd)
+    while True:
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=2.0); break
+        except asyncio.TimeoutError:
+            if cancel_flags.get(chat_id): proc.terminate(); raise ValueError("CANCELLED")
+    return proc.returncode
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
