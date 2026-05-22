@@ -912,6 +912,243 @@ async def run_yt_cmd(cmd, chat_id):
             if cancel_flags.get(chat_id): proc.terminate(); raise ValueError("CANCELLED")
     return proc.returncode
 
+# ── GitHub API helpers ────────────────────────────────────────────────────────
+GH_HEADERS = lambda token: {
+    "Authorization": f"Bearer {token}",
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+}
+
+async def gh_validate_token(token):
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get("https://api.github.com/user", headers=GH_HEADERS(token))
+        if r.status_code == 200: return r.json()["login"], None
+        return None, f"توکن نامعتبر است (کد: {r.status_code})"
+
+async def gh_create_repo(token, repo_name):
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get("https://api.github.com/user", headers=GH_HEADERS(token))
+        username = r.json()["login"]
+        r = await c.get(f"https://api.github.com/repos/{username}/{repo_name}",
+                        headers=GH_HEADERS(token))
+        if r.status_code == 200: return True, username
+        r = await c.post("https://api.github.com/user/repos",
+                         headers=GH_HEADERS(token),
+                         json={"name": repo_name, "private": False, "auto_init": True,
+                               "description": "Mega Leecher Cloud Storage"})
+        return r.status_code == 201, username
+
+def check_gh_quota(user_id):
+    if user_id == ADMIN_ID: return True, GITHUB_DAILY_LIMIT
+    db = load_github_db(); uid = str(user_id)
+    if uid not in db: return False, 0
+    now = time.time()
+    history = [t for t in db[uid].get("gh_history", []) if now - t < 86400]
+    remaining = GITHUB_DAILY_LIMIT - len(history)
+    return remaining > 0, remaining
+
+def record_gh_upload(user_id):
+    if user_id == ADMIN_ID: return
+    db = load_github_db(); uid = str(user_id)
+    if uid not in db: return
+    now = time.time()
+    history = [t for t in db[uid].get("gh_history", []) if now - t < 86400]
+    history.append(now)
+    db[uid]["gh_history"] = history
+    save_github_db(db)
+
+def update_repo_size(username, repo_name, added_bytes):
+    db = load_github_db()
+    uid = next((u for u, d in db.items() if d.get("username") == username), None)
+    if uid:
+        if "repo_sizes" not in db[uid]: db[uid]["repo_sizes"] = {}
+        db[uid]["repo_sizes"][repo_name] = db[uid]["repo_sizes"].get(repo_name, 0) + added_bytes
+        save_github_db(db)
+
+def reset_repo_sizes(username, repos):
+    db = load_github_db()
+    uid = next((u for u, d in db.items() if d.get("username") == username), None)
+    if uid:
+        db[uid]["repo_sizes"] = {r: 0 for r in repos}
+        save_github_db(db)
+
+def gh_find_repo(token, username, repos, file_size):
+    db = load_github_db()
+    uid = next((u for u, d in db.items() if d.get("username") == username), None)
+    repo_sizes = db[uid].get("repo_sizes", {}) if uid else {}
+    for repo in repos:
+        if GITHUB_REPO_MAX - repo_sizes.get(repo, 0) >= file_size:
+            return repo
+    return None
+
+async def gh_clear_all(token, username, repos, status_msg):
+    for i, repo in enumerate(repos, 1):
+        await safe_edit(status_msg, f"🗑 در حال پاکسازی ریپازیتوری {i} از {len(repos)}...")
+        clone_dir = os.path.join(TEMP_DIR, f"gh_clear_{int(time.time())}_{i}")
+        try:
+            os.makedirs(clone_dir, exist_ok=True)
+            clone_url = f"https://{username}:{token}@github.com/{username}/{repo}.git"
+            env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+            async def git(*args):
+                p = await asyncio.create_subprocess_exec("git", *args, cwd=clone_dir,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env)
+                await p.communicate()
+                return p.returncode
+            await git("init")
+            await git("remote", "add", "origin", clone_url)
+            await git("config", "user.email", "bot@mega-leecher.bot")
+            await git("config", "user.name", "Mega Leecher")
+            await git("config", "pack.windowMemory", "10m")
+            await git("config", "pack.compression", "0")
+            await git("config", "pack.threads", "1")
+            rc = await git("fetch", "--depth=1", "origin", "main")
+            if rc != 0: continue
+            await git("checkout", "-B", "main", "FETCH_HEAD")
+            uploads_dir = os.path.join(clone_dir, "uploads")
+            if os.path.exists(uploads_dir):
+                shutil.rmtree(uploads_dir)
+                await git("add", "-A")
+                rc = await git("commit", "-m", "Clear all uploads")
+                if rc == 0:
+                    await git("push", "origin", "main", "--force")
+        except Exception: pass
+        finally: shutil.rmtree(clone_dir, ignore_errors=True)
+
+# ── GitHub menu ───────────────────────────────────────────────────────────────
+@app.on_message(filters.text & filters.regex("^☁️ اتصال به گیتهاب$"))
+async def github_menu(client, message):
+    user_id = message.from_user.id
+    if not has_access(user_id):
+        await message.reply(f"⛔️ این قابلیت فقط برای کاربران دارای اشتراک است.\n{PURCHASE_USERNAME}")
+        return
+    db = load_github_db(); uid = str(user_id); has_t = uid in db
+    username = db[uid]["username"] if has_t else None
+    status = f"✅ متصل به اکانت `{username}`" if has_t else "❌ توکن تنظیم نشده"
+    buttons = [
+        [InlineKeyboardButton("📖 راهنمای گام به گام", callback_data="gh_guide")],
+        [InlineKeyboardButton("🔑 تغییر توکن" if has_t else "🔑 وارد کردن توکن",
+                              callback_data="gh_set_token")]
+    ]
+    if has_t:
+        buttons.append([InlineKeyboardButton("📊 فضای باقیمانده",      callback_data="gh_space")])
+        buttons.append([InlineKeyboardButton("🗑 پاکسازی همه فایل‌ها", callback_data="gh_clear")])
+    await message.reply(
+        f"☁️ **مدیریت فضای ابری گیتهاب**\n\nوضعیت: {status}\n\n"
+        "با اتصال به گیتهاب فایل‌ها را رایگان ذخیره کرده و لینک مستقیم دریافت کنید.\n\n"
+        "📦 ظرفیت: تا **۱۵ گیگابایت** (۳ ریپازیتوری × ۵ گیگ)",
+        reply_markup=InlineKeyboardMarkup(buttons))
+
+@app.on_callback_query(filters.regex("^gh_"))
+async def github_callback(client, cq):
+    await cq.answer()
+    chat_id = cq.message.chat.id; user_id = cq.from_user.id; action = cq.data
+
+    if action == "gh_guide":
+        await safe_edit(cq.message,
+            "📖 **راهنمای دریافت توکن گیتهاب**\n\n"
+            "**مرحله ۱ — ساخت حساب:**\n"
+            "① به `github.com` بروید و ثبت‌نام کنید\n\n"
+            "**مرحله ۲ — رفتن به تنظیمات:**\n"
+            "① تصویر پروفایل → **Settings**\n"
+            "② پایین صفحه → **Developer settings**\n"
+            "③ **Personal access tokens** → **Fine-grained tokens**\n"
+            "④ **Generate new token**\n\n"
+            "**مرحله ۳ — تنظیمات توکن:**\n"
+            "① نام دلخواه (مثلاً `mega-leecher`)\n"
+            "② Expiration: **No expiration**\n"
+            "③ Repository access: **All repositories**\n"
+            "④ Permissions → Contents: **Read and write**\n\n"
+            "⚠️ توکن فقط یک‌بار نمایش داده می‌شود — همین‌جا کپی کنید!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔑 وارد کردن توکن", callback_data="gh_set_token")]]))
+
+    elif action == "gh_set_token":
+        user_states[f"gh_{chat_id}"] = {"type": "awaiting_gh_token"}
+        await client.send_message(chat_id,
+            "🔑 توکن GitHub خود را ارسال کنید\n(با `ghp_` یا `github_pat_` شروع می‌شود):",
+            reply_markup=ForceReply(selective=True))
+
+    elif action == "gh_space":
+        db = load_github_db(); uid = str(user_id)
+        if uid not in db: await safe_edit(cq.message, "❌ توکن تنظیم نشده."); return
+        d = db[uid]; repos = d.get("repos", []); repo_sizes = d.get("repo_sizes", {})
+        repo_lines = ""; total_used = 0
+        for r in repos:
+            sz = repo_sizes.get(r, 0); total_used += sz
+            pr = sz / GITHUB_REPO_MAX * 100
+            bar_r = "■"*int(pr/10) + "□"*(10-int(pr/10))
+            repo_lines += f"  📁 `{r}`: {sz/(1024**3):.2f}GB [{bar_r}]\n"
+        total_cap = GITHUB_REPO_MAX * len(repos)
+        pct = (total_used / total_cap * 100) if total_cap > 0 else 0
+        bar = "■"*int(pct/10) + "□"*(10-int(pct/10))
+        _, remaining_quota = check_gh_quota(user_id)
+        await safe_edit(cq.message,
+            f"📊 **فضای ابری گیتهاب:**\n\n"
+            f"👤 اکانت: `{d['username']}`\n\n"
+            f"**وضعیت هر ریپازیتوری:**\n{repo_lines}\n"
+            f"[{bar}] {pct:.1f}%\n"
+            f"📦 مصرف: {total_used/(1024**3):.2f} GB\n"
+            f"✅ باقیمانده: {(total_cap-total_used)/(1024**3):.2f} GB از {total_cap/(1024**3):.0f} GB\n\n"
+            f"🔢 سهمیه امروز: **{remaining_quota} از {GITHUB_DAILY_LIMIT}** باقی مانده")
+
+    elif action == "gh_clear":
+        await safe_edit(cq.message,
+            "⚠️ تمام فایل‌های آپلود شده در گیتهاب حذف می‌شوند. مطمئنید؟",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ بله، پاکسازی کن", callback_data="gh_clear_ok")],
+                [InlineKeyboardButton("❌ انصراف",           callback_data="gh_cancel")]]))
+
+    elif action == "gh_clear_ok":
+        db = load_github_db(); uid = str(user_id)
+        if uid not in db: await safe_edit(cq.message, "❌ توکن تنظیم نشده."); return
+        d = db[uid]
+        await safe_edit(cq.message, "🗑 در حال پاکسازی...")
+        try:
+            await gh_clear_all(d["token"], d["username"], d.get("repos", []), cq.message)
+            reset_repo_sizes(d["username"], d.get("repos", []))
+            await safe_edit(cq.message, "✅ **فضای گیتهاب پاکسازی شد!**")
+        except Exception as e:
+            await safe_edit(cq.message, f"⚠️ خطا:\n`{e}`")
+
+    elif action == "gh_cancel":
+        await safe_edit(cq.message, "❌ عملیات لغو شد.")
+
+@app.on_message(filters.text)
+async def handle_github_token_input(client, message):
+    chat_id = message.chat.id
+    sk = f"gh_{chat_id}"
+    if sk not in user_states or user_states[sk].get("type") != "awaiting_gh_token":
+        message.continue_propagation(); return
+    token = message.text.strip()
+    del user_states[sk]
+    status_msg = await message.reply("⏳ در حال بررسی توکن...")
+    username, err = await gh_validate_token(token)
+    if err:
+        await safe_final_edit(message, status_msg,
+            f"❌ {err}\nدوباره از منوی گیتهاب امتحان کنید."); return
+    await safe_edit(status_msg,
+        f"✅ توکن معتبر! اکانت: `{username}`\n⏳ در حال ایجاد ریپازیتوری‌ها...")
+    repos = []
+    for i in range(1, GITHUB_MAX_REPOS + 1):
+        repo_name = f"bot-cloud-{i}"
+        await safe_edit(status_msg,
+            f"✅ توکن معتبر! اکانت: `{username}`\n⏳ ایجاد ریپازیتوری {i} از {GITHUB_MAX_REPOS}...")
+        ok, _ = await gh_create_repo(token, repo_name)
+        if ok: repos.append(repo_name)
+    if not repos:
+        await safe_final_edit(message, status_msg,
+            "❌ خطا در ایجاد ریپازیتوری.\nمجوزهای توکن را بررسی کنید."); return
+    db = load_github_db()
+    db[str(chat_id)] = {"token": token, "username": username,
+                        "repos": repos, "repo_sizes": {r: 0 for r in repos}}
+    save_github_db(db)
+    await safe_final_edit(message, status_msg,
+        f"✅ **اتصال به گیتهاب برقرار شد!**\n\n"
+        f"👤 اکانت: `{username}`\n"
+        f"📁 ریپازیتوری‌ها: {len(repos)} عدد\n"
+        f"💾 ظرفیت: تا {len(repos)*5} گیگابایت\n\n"
+        "گزینه **☁️ آپلود به گیتهاب** در منوی پردازش فایل نمایش داده می‌شود.")
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run()
