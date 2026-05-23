@@ -1313,6 +1313,278 @@ async def _do_github_upload(client, chat_id, data, target_path, chat_base,
     record_gh_upload(chat_id)
     update_repo_size(username, repo_name, file_size)
 
+# ── Google Drive OAuth helpers ────────────────────────────────────────────────
+def get_drive_auth_url():
+    params = urllib.parse.urlencode({
+        "client_id":     GOOGLE_CLIENT_ID,
+        "redirect_uri":  "http://localhost",
+        "response_type": "code",
+        "scope":         "https://www.googleapis.com/auth/drive.file",
+        "access_type":   "offline",
+        "prompt":        "consent"
+    })
+    return f"https://accounts.google.com/o/oauth2/auth?{params}"
+
+async def exchange_drive_code(code):
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.post("https://oauth2.googleapis.com/token", data={
+            "client_id":     GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "code":          code.strip(),
+            "redirect_uri":  "http://localhost",
+            "grant_type":    "authorization_code"
+        })
+        if r.status_code == 200:
+            d = r.json()
+            return d.get("access_token"), d.get("refresh_token"), \
+                   time.time() + d.get("expires_in", 3600)
+        raise Exception(f"کد نامعتبر است ({r.status_code}): {r.text[:100]}")
+
+async def get_valid_drive_token(user_id):
+    db = load_drive_db(); uid = str(user_id)
+    if uid not in db: return None
+    d = db[uid]
+    if d.get("token_expiry", 0) - time.time() > 60:
+        return d["access_token"]
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.post("https://oauth2.googleapis.com/token", data={
+            "client_id":     GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "refresh_token": d["refresh_token"],
+            "grant_type":    "refresh_token"
+        })
+        if r.status_code == 200:
+            data = r.json()
+            d["access_token"]  = data["access_token"]
+            d["token_expiry"]  = time.time() + data.get("expires_in", 3600)
+            db[uid] = d; save_drive_db(db)
+            return d["access_token"]
+    return None
+
+async def drive_get_or_create_folder(token, name="Mega Leecher Uploads"):
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get("https://www.googleapis.com/drive/v3/files",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"q": f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                    "fields": "files(id)"})
+        if r.status_code == 200 and r.json().get("files"):
+            return r.json()["files"][0]["id"]
+        r = await c.post("https://www.googleapis.com/drive/v3/files",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"name": name, "mimeType": "application/vnd.google-apps.folder"})
+        if r.status_code == 200: return r.json()["id"]
+        raise Exception(f"خطا در ساخت پوشه: {r.status_code}")
+
+async def drive_get_space(token):
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get("https://www.googleapis.com/drive/v3/about",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"fields": "storageQuota"})
+        if r.status_code == 200:
+            q = r.json()["storageQuota"]
+            total = int(q.get("limit", 0)); used = int(q.get("usage", 0))
+            return used, total, total - used
+    return 0, 0, 0
+
+async def drive_list_files(token, folder_id):
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get("https://www.googleapis.com/drive/v3/files",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"q": f"'{folder_id}' in parents and trashed=false",
+                    "fields": "files(id,name,size)"})
+        if r.status_code == 200: return r.json().get("files", [])
+    return []
+
+async def drive_clear_all_files(token, folder_id, status_msg):
+    files = await drive_list_files(token, folder_id)
+    deleted = 0
+    async with httpx.AsyncClient(timeout=30) as c:
+        for f in files:
+            r = await c.delete(f"https://www.googleapis.com/drive/v3/files/{f['id']}",
+                headers={"Authorization": f"Bearer {token}"})
+            if r.status_code == 204:
+                deleted += 1
+                await safe_edit(status_msg, f"🗑 در حال پاکسازی... ({deleted} فایل حذف شد)")
+    return deleted
+
+def check_drive_quota(user_id):
+    if user_id == ADMIN_ID: return True, DRIVE_DAILY_LIMIT
+    db = load_drive_db(); uid = str(user_id)
+    if uid not in db: return False, 0
+    now = time.time()
+    history = [t for t in db[uid].get("drive_history", []) if now - t < 86400]
+    return DRIVE_DAILY_LIMIT - len(history) > 0, DRIVE_DAILY_LIMIT - len(history)
+
+def record_drive_upload(user_id):
+    if user_id == ADMIN_ID: return
+    db = load_drive_db(); uid = str(user_id)
+    if uid not in db: return
+    now = time.time()
+    history = [t for t in db[uid].get("drive_history", []) if now - t < 86400]
+    history.append(now)
+    db[uid]["drive_history"] = history
+    save_drive_db(db)
+
+# ── Google Drive menu ─────────────────────────────────────────────────────────
+@app.on_message(filters.text & filters.regex("^📂 اتصال به گوگل درایو$"))
+async def drive_menu(client, message):
+    user_id = message.from_user.id
+    if not has_access(user_id):
+        await message.reply(f"⛔️ این قابلیت فقط برای کاربران دارای اشتراک است.\n{PURCHASE_USERNAME}")
+        return
+    db = load_drive_db(); uid = str(user_id); has_d = uid in db
+    status = "✅ متصل" if has_d else "❌ متصل نشده"
+    buttons = [
+        [InlineKeyboardButton("📖 راهنمای گام به گام",      callback_data="gd_guide")],
+        [InlineKeyboardButton("📥 راهنمای دانلود لینک‌ها",  callback_data="gd_dl_guide")],
+        [InlineKeyboardButton("🔗 اتصال حساب گوگل",         callback_data="gd_connect")]
+    ]
+    if has_d:
+        buttons.append([InlineKeyboardButton("📊 فضای باقیمانده",          callback_data="gd_space")])
+        buttons.append([InlineKeyboardButton("🗑 پاکسازی فایل‌های آپلودشده", callback_data="gd_clear")])
+        buttons.append([InlineKeyboardButton("❌ قطع اتصال",                callback_data="gd_disconnect")])
+    await message.reply(
+        f"📂 **مدیریت گوگل درایو**\n\nوضعیت: {status}\n\n"
+        "با اتصال به گوگل درایو فایل‌ها را آپلود کرده و لینک دانلود مستقیم دریافت کنید.\n\n"
+        "💾 ظرفیت رایگان: **۱۵ گیگابایت**\n"
+        "🔢 سهمیه روزانه: **۱۰ آپلود**",
+        reply_markup=InlineKeyboardMarkup(buttons))
+
+@app.on_callback_query(filters.regex("^gd_"))
+async def drive_callback(client, cq):
+    await cq.answer()
+    chat_id = cq.message.chat.id; user_id = cq.from_user.id; action = cq.data
+
+    if action == "gd_guide":
+        await safe_edit(cq.message,
+            "📖 **راهنمای اتصال به گوگل درایو**\n\n"
+            "**مرحله ۱ — باز کردن لینک:**\n"
+            "① روی **اتصال حساب گوگل** بزنید\n"
+            "② لینک را **کپی** کنید\n"
+            "③ در مرورگر Chrome یا Safari باز کنید\n"
+            "   ⚠️ در مرورگر داخلی تلگرام باز **نکنید**\n\n"
+            "**مرحله ۲ — ورود به گوگل:**\n"
+            "① با حساب گوگل وارد شوید\n"
+            "② روی **Allow** کلیک کنید\n\n"
+            "**مرحله ۳ — دریافت کد:**\n"
+            "① مرورگر صفحه خطا نشان می‌دهد — این **طبیعی** است\n"
+            "② آدرس کامل صفحه را از نوار آدرس کپی کنید\n"
+            "   مثال: `http://localhost/?code=4/0Ae...`\n"
+            "③ آدرس را برای ربات **بفرستید**",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔗 اتصال حساب گوگل", callback_data="gd_connect")]]))
+
+    elif action == "gd_connect":
+        if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+            await safe_edit(cq.message,
+                "❌ اطلاعات Google OAuth در config.env تنظیم نشده.\n"
+                "مقادیر GOOGLE_CLIENT_ID و GOOGLE_CLIENT_SECRET را پر کنید.")
+            return
+        auth_url = get_drive_auth_url()
+        user_states[f"gd_{chat_id}"] = {"type": "awaiting_drive_code"}
+        await client.send_message(chat_id,
+            f"🔗 **اتصال به گوگل درایو:**\n\n"
+            f"**مرحله ۱:** لینک زیر را در مرورگر باز کنید:\n{auth_url}\n\n"
+            f"**مرحله ۲:** با حساب گوگل وارد شوید و دسترسی را تأیید کنید\n\n"
+            f"**مرحله ۳:** آدرس کامل صفحه خطا را کپی کرده و همین‌جا بفرستید\n\n"
+            f"مثال: `http://localhost/?code=4/xxxxx`",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ لغو اتصال", callback_data="gd_cancel")]]))
+
+    elif action == "gd_space":
+        db = load_drive_db(); uid = str(user_id)
+        if uid not in db: await safe_edit(cq.message, "❌ حساب گوگل متصل نشده."); return
+        await safe_edit(cq.message, "⏳ در حال بررسی فضا...")
+        token = await get_valid_drive_token(user_id)
+        if not token: await safe_edit(cq.message, "❌ خطا در احراز هویت. دوباره متصل شوید."); return
+        used, total, remaining = await drive_get_space(token)
+        pct = (used/total*100) if total > 0 else 0
+        bar = "■"*int(pct/10) + "□"*(10-int(pct/10))
+        _, quota_left = check_drive_quota(user_id)
+        await safe_edit(cq.message,
+            f"📊 **فضای گوگل درایو:**\n\n"
+            f"[{bar}] {pct:.1f}%\n"
+            f"📦 مصرف: {used/(1024**3):.2f} GB\n"
+            f"✅ باقیمانده: {remaining/(1024**3):.2f} GB از {total/(1024**3):.0f} GB\n\n"
+            f"🔢 سهمیه امروز: **{quota_left} از {DRIVE_DAILY_LIMIT}** باقی مانده")
+
+    elif action == "gd_clear":
+        await safe_edit(cq.message,
+            "⚠️ تمام فایل‌های آپلودشده در گوگل درایو حذف می‌شوند. مطمئنید؟",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ بله، پاکسازی کن", callback_data="gd_clear_ok")],
+                [InlineKeyboardButton("❌ انصراف",           callback_data="gd_cancel")]]))
+
+    elif action == "gd_clear_ok":
+        db = load_drive_db(); uid = str(user_id)
+        if uid not in db: await safe_edit(cq.message, "❌ حساب متصل نشده."); return
+        token = await get_valid_drive_token(user_id)
+        if not token: await safe_edit(cq.message, "❌ خطا در احراز هویت."); return
+        folder_id = db[uid].get("folder_id")
+        if not folder_id: await safe_edit(cq.message, "❌ پوشه‌ای یافت نشد."); return
+        await safe_edit(cq.message, "🗑 در حال پاکسازی...")
+        try:
+            count = await drive_clear_all_files(token, folder_id, cq.message)
+            await safe_edit(cq.message, f"✅ **پاکسازی انجام شد!**\n{count} فایل حذف شد.")
+        except Exception as e:
+            await safe_edit(cq.message, f"⚠️ خطا: `{e}`")
+
+    elif action == "gd_dl_guide":
+        await client.send_message(chat_id,
+            "📥 **راهنمای دانلود از گوگل درایو**\n\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "**روش اول — مرورگر:**\n\n"
+            "① لینک **دانلود مستقیم** را کپی کنید\n"
+            "② در مرورگر Paste کنید\n"
+            "③ اگر گوگل هشدار ویروس داد روی **Download anyway** کلیک کنید\n\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "**روش دوم — اپ اندروید (اگر روش اول کار نکرد):**\n\n"
+            "① اپ MITM Drive Downloader را نصب کنید\n"
+            "② اپ را باز کنید و روی **Start** بزنید\n"
+            "③ لینک **دانلود مستقیم** را Paste کنید\n"
+            "④ روی **Download** بزنید")
+        user_states.pop(f"gd_{chat_id}", None)
+
+    elif action == "gd_disconnect":
+        db = load_drive_db(); uid = str(user_id)
+        if uid in db: del db[uid]; save_drive_db(db)
+        await safe_edit(cq.message, "✅ حساب گوگل قطع شد.")
+
+    elif action == "gd_cancel":
+        user_states.pop(f"gd_{chat_id}", None)
+        await safe_edit(cq.message, "❌ عملیات لغو شد.")
+
+@app.on_message(filters.text, group=1)
+async def handle_drive_code_input(client, message):
+    chat_id = message.chat.id
+    sk = f"gd_{chat_id}"
+    if sk not in user_states or user_states[sk].get("type") != "awaiting_drive_code": return
+    code = message.text.strip()
+    if "code=" in code:
+        match = re.search(r'[?&]code=([^&\s]+)', code)
+        if match: code = urllib.parse.unquote(match.group(1))
+    del user_states[sk]
+    status_msg = await message.reply("⏳ در حال بررسی کد...")
+    try:
+        access_token, refresh_token, expiry = await exchange_drive_code(code)
+        if not refresh_token:
+            await safe_final_edit(message, status_msg,
+                "❌ کد نامعتبر. دوباره از منوی گوگل درایو امتحان کنید."); return
+        await safe_edit(status_msg, "⏳ در حال ساخت پوشه...")
+        folder_id = await drive_get_or_create_folder(access_token)
+        db = load_drive_db()
+        db[str(chat_id)] = {
+            "access_token": access_token, "refresh_token": refresh_token,
+            "token_expiry": expiry, "folder_id": folder_id, "drive_history": []
+        }
+        save_drive_db(db)
+        await safe_final_edit(message, status_msg,
+            "✅ **اتصال به گوگل درایو موفق بود!**\n\n"
+            "💾 ظرفیت رایگان: ۱۵ گیگابایت\n\n"
+            "گزینه **📂 آپلود به گوگل درایو** در منوی پردازش فایل نمایش داده می‌شود.")
+    except Exception as e:
+        await safe_final_edit(message, status_msg, f"❌ خطا: `{e}`")
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run()
