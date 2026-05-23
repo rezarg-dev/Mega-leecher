@@ -640,7 +640,30 @@ async def core_processing(client, chat_id, data):
                     progress_args=(status_msg, time.time(), "ارسال فایل", False))
             uploaded_ok = True
 
-        elif action not in ("github", "gdrive"):
+        elif action == "github":
+            db = load_github_db(); uid = str(chat_id)
+            gh = db[uid]; token = gh["token"]
+            username = gh["username"]; repos = gh.get("repos", [])
+            allowed_gh, remaining_gh = check_gh_quota(chat_id)
+            if chat_id != ADMIN_ID:
+                if GITHUB_GLOBAL_SEM.locked():
+                    await safe_edit(status_msg,
+                        "⏳ **صف آپلود گیتهاب**
+
+به محض آزاد شدن، آپلود شروع می‌شود...",
+                        reply_markup=get_cancel_keyboard())
+                async with GITHUB_GLOBAL_SEM:
+                    await _do_github_upload(client, chat_id, data, target_path,
+                                            chat_base, token, username, repos,
+                                            remaining_gh, status_msg)
+                    uploaded_ok = True
+            else:
+                await _do_github_upload(client, chat_id, data, target_path,
+                                        chat_base, token, username, repos,
+                                        remaining_gh, status_msg)
+                uploaded_ok = True
+
+        elif action not in ("gdrive",):
             final_source = target_path
             await safe_edit(status_msg, "در حال بسته‌بندی RAR...")
             archive_path = os.path.join(out_dir, "Mega-Leecher.rar")
@@ -1148,6 +1171,147 @@ async def handle_github_token_input(client, message):
         f"📁 ریپازیتوری‌ها: {len(repos)} عدد\n"
         f"💾 ظرفیت: تا {len(repos)*5} گیگابایت\n\n"
         "گزینه **☁️ آپلود به گیتهاب** در منوی پردازش فایل نمایش داده می‌شود.")
+
+# ── GitHub chunked upload ─────────────────────────────────────────────────────
+async def gh_upload_file(token, username, repo, local_path, status_msg, chat_id):
+    """آپلود chunk به chunk با git push — هر پارت جداگانه commit می‌شود"""
+    file_name  = os.path.basename(local_path)
+    ts         = int(time.time())
+    folder_name= f"upload_{ts}"
+    file_size  = os.path.getsize(local_path)
+    n_parts    = max(1, (file_size + GITHUB_CHUNK_SIZE - 1) // GITHUB_CHUNK_SIZE)
+    clone_dir  = os.path.join(TEMP_DIR, f"gh_{chat_id}_{ts}")
+
+    try:
+        await safe_edit(status_msg, "☁️ در حال آماده‌سازی...", reply_markup=get_cancel_keyboard())
+        os.makedirs(clone_dir, exist_ok=True)
+        clone_url = f"https://{username}:{token}@github.com/{username}/{repo}.git"
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+
+        async def git(*args):
+            p = await asyncio.create_subprocess_exec("git", *args, cwd=clone_dir,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env)
+            out, err = await p.communicate()
+            return p.returncode, out.decode(), err.decode()
+
+        await git("init")
+        await git("remote", "add", "origin", clone_url)
+        await git("config", "user.email", "bot@mega-leecher.bot")
+        await git("config", "user.name",  "Mega Leecher")
+        await git("config", "pack.windowMemory",   "10m")
+        await git("config", "pack.compression",    "0")
+        await git("config", "pack.threads",        "1")
+        await git("config", "core.bigFileThreshold","1m")
+        await git("fetch", "--depth=1", "origin", "main")
+        await git("checkout", "-B", "main", "FETCH_HEAD")
+
+        upload_dir = os.path.join(clone_dir, "uploads", folder_name)
+        os.makedirs(upload_dir, exist_ok=True)
+        links = []
+        ext   = os.path.splitext(file_name)[1]
+
+        with open(local_path, 'rb') as f:
+            for i in range(1, n_parts + 1):
+                if cancel_flags.get(chat_id): raise ValueError("CANCELLED")
+                chunk = f.read(GITHUB_CHUNK_SIZE)
+                if not chunk: break
+                chunk_name = f"Mega-Leecher{ext}.{i:03d}" if n_parts > 1 else f"Mega-Leecher{ext}"
+                chunk_path = os.path.join(upload_dir, chunk_name)
+                chunk_mb   = len(chunk) / (1024 * 1024)
+                bar = "■"*(i*10//n_parts) + "□"*(10-i*10//n_parts)
+                await safe_edit(status_msg,
+                    f"☁️ **آپلود به گیتهاب...**\n[{bar}] {i*100//n_parts}%\n"
+                    f"پارت {i} از {n_parts}  ({chunk_mb:.1f} MB)",
+                    reply_markup=get_cancel_keyboard())
+                with open(chunk_path, 'wb') as cf: cf.write(chunk)
+                del chunk
+                await git("add", f"uploads/{folder_name}/{chunk_name}")
+                await git("commit", "-m", f"chunk {i}/{n_parts}: {chunk_name}")
+                push_proc = await asyncio.create_subprocess_exec(
+                    "git", "push", "origin", "main", "--force",
+                    cwd=clone_dir, stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE, env=env)
+                while True:
+                    try:
+                        await asyncio.wait_for(push_proc.wait(), timeout=10.0); break
+                    except asyncio.TimeoutError:
+                        if cancel_flags.get(chat_id):
+                            push_proc.terminate(); raise ValueError("CANCELLED")
+                if push_proc.returncode != 0:
+                    err_b = await push_proc.stderr.read()
+                    raise Exception(f"git push ناموفق پارت {i}: {err_b.decode()[:150]}")
+                links.append(
+                    f"https://raw.githubusercontent.com/{username}/{repo}/main"
+                    f"/uploads/{folder_name}/{chunk_name}")
+
+        return links, len(links)
+    finally:
+        shutil.rmtree(clone_dir, ignore_errors=True)
+
+# ── _do_github_upload ─────────────────────────────────────────────────────────
+async def _do_github_upload(client, chat_id, data, target_path, chat_base,
+                            token, username, repos, remaining_gh, status_msg):
+    upload_path = target_path
+    if os.path.isdir(target_path):
+        await safe_edit(status_msg, "📦 در حال آماده‌سازی فایل...")
+        zip_path = os.path.join(chat_base, "github_upload.zip")
+        proc = await asyncio.create_subprocess_exec(
+            "zip", "-r", zip_path, "-j", target_path,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        await proc.communicate()
+        upload_path = zip_path
+
+    file_size = os.path.getsize(upload_path)
+    if file_size > MAX_SIZE_LIMIT and chat_id != ADMIN_ID:
+        await safe_edit(status_msg,
+            f"❌ حجم فایل بیشتر از ۲ گیگابایت است ({file_size/(1024**3):.2f} GB)"); return
+
+    repo_name = gh_find_repo(token, username, repos, file_size)
+    if not repo_name:
+        await safe_edit(status_msg,
+            "❌ **فضای گیتهاب پر شده!**\n\n"
+            "از منوی ☁️ اتصال به گیتهاب، گزینه پاکسازی را بزنید."); return
+
+    links, n_parts = await gh_upload_file(
+        token, username, repo_name, upload_path, status_msg, chat_id)
+
+    if upload_path != target_path and os.path.exists(upload_path):
+        os.unlink(upload_path)
+
+    quota_line = ("" if chat_id == ADMIN_ID
+                  else f"🔢 سهمیه باقیمانده: **{remaining_gh - 1} آپلود**\n")
+    await safe_edit(status_msg, "✅ آپلود کامل شد!")
+
+    header = (f"✅ **آپلود به گیتهاب موفق بود!**\n\n"
+              f"📁 ریپازیتوری: `{repo_name}`\n"
+              f"🔢 تعداد پارت‌ها: {n_parts}\n{quota_line}")
+    if n_parts > 1:
+        header += ("\n📥 **نحوه استفاده:**\n"
+                   "۱. تمام پارت‌ها را دانلود کنید\n"
+                   "۲. همه را در یک پوشه قرار دهید\n"
+                   "۳. پارت اول را با 7-Zip باز کنید\n")
+    await client.send_message(chat_id, header)
+
+    TG_LIMIT = 4000
+    current_msg = "🔗 **لینک‌های دانلود:**\n\n"
+    for idx, link in enumerate(links, 1):
+        line = f"📎 پارت {idx}:\n`{link}`\n\n"
+        if len(current_msg) + len(line) > TG_LIMIT:
+            await client.send_message(chat_id, current_msg.strip())
+            current_msg = line
+        else:
+            current_msg += line
+    if current_msg.strip():
+        await client.send_message(chat_id, current_msg.strip())
+
+    txt_path = os.path.join(TEMP_DIR, f"links_{chat_id}_{int(time.time())}.txt")
+    with open(txt_path, 'w') as f: f.write("\n".join(links))
+    await client.send_document(chat_id, txt_path,
+        caption="📄 تمام لینک‌ها — برای وارد کردن به دانلود منیجر")
+    os.unlink(txt_path)
+
+    record_gh_upload(chat_id)
+    update_repo_size(username, repo_name, file_size)
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
