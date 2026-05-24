@@ -663,7 +663,38 @@ async def core_processing(client, chat_id, data):
                                         remaining_gh, status_msg)
                 uploaded_ok = True
 
-        elif action not in ("gdrive",):
+        elif action == "gdrive":
+            db = load_drive_db(); uid = str(chat_id)
+            token = await get_valid_drive_token(chat_id)
+            if not token:
+                await safe_edit(status_msg,
+                    "❌ خطا در احراز هویت گوگل. دوباره از منوی اتصال متصل شوید."); return
+            folder_id = db[uid].get("folder_id")
+            if not folder_id:
+                try:
+                    folder_id = await drive_get_or_create_folder(token)
+                    db[uid]["folder_id"] = folder_id; save_drive_db(db)
+                except:
+                    await safe_edit(status_msg, "❌ خطا در دسترسی به گوگل درایو."); return
+            allowed_d, remaining_d = check_drive_quota(chat_id)
+            if chat_id != ADMIN_ID:
+                if DRIVE_GLOBAL_SEM.locked():
+                    await safe_edit(status_msg,
+                        "⏳ **صف آپلود گوگل درایو**
+
+به محض آزاد شدن، آپلود شروع می‌شود...",
+                        reply_markup=get_cancel_keyboard())
+                async with DRIVE_GLOBAL_SEM:
+                    await _do_drive_upload(client, chat_id, data, target_path,
+                                           chat_base, token, folder_id,
+                                           remaining_d, status_msg)
+                    uploaded_ok = True
+            else:
+                await _do_drive_upload(client, chat_id, data, target_path,
+                                       chat_base, token, folder_id,
+                                       remaining_d, status_msg)
+                uploaded_ok = True
+
             final_source = target_path
             await safe_edit(status_msg, "در حال بسته‌بندی RAR...")
             archive_path = os.path.join(out_dir, "Mega-Leecher.rar")
@@ -1584,6 +1615,100 @@ async def handle_drive_code_input(client, message):
             "گزینه **📂 آپلود به گوگل درایو** در منوی پردازش فایل نمایش داده می‌شود.")
     except Exception as e:
         await safe_final_edit(message, status_msg, f"❌ خطا: `{e}`")
+
+# ── Google Drive upload ───────────────────────────────────────────────────────
+async def drive_upload_file_stream(token, file_path, file_name, folder_id, status_msg, chat_id):
+    file_size = os.path.getsize(file_path)
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json",
+                     "X-Upload-Content-Type": "application/octet-stream",
+                     "X-Upload-Content-Length": str(file_size)},
+            json={"name": file_name, "parents": [folder_id]})
+        if r.status_code != 200:
+            raise Exception(f"خطا در شروع آپلود: {r.status_code}")
+        upload_url = r.headers["Location"]
+
+    last_t = [time.time()]; sent = [0]
+
+    async def file_iter():
+        with open(file_path, 'rb') as f:
+            while True:
+                if cancel_flags.get(chat_id): return
+                chunk = f.read(512 * 1024)
+                if not chunk: break
+                sent[0] += len(chunk)
+                now = time.time()
+                if now - last_t[0] >= 5:
+                    last_t[0] = now
+                    pct = sent[0] * 100 // file_size
+                    bar = "■"*(pct//10) + "□"*(10-pct//10)
+                    await safe_edit(status_msg,
+                        f"📂 **آپلود به گوگل درایو...**\n[{bar}] {pct}%\n"
+                        f"{sent[0]/(1024*1024):.1f} MB از {file_size/(1024*1024):.1f} MB",
+                        reply_markup=get_cancel_keyboard())
+                yield chunk
+
+    async with httpx.AsyncClient(timeout=3600) as c:
+        r = await c.put(upload_url, content=file_iter(),
+            headers={"Content-Length": str(file_size),
+                     "Content-Type": "application/octet-stream"})
+        if r.status_code not in (200, 201):
+            raise Exception(f"آپلود ناموفق: {r.status_code}")
+        file_id = r.json()["id"]
+        await c.post(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"role": "reader", "type": "anyone"})
+
+    return (file_id,
+            f"https://drive.google.com/file/d/{file_id}/view?usp=sharing",
+            f"https://drive.google.com/uc?id={file_id}&export=download")
+
+# ── _do_drive_upload ──────────────────────────────────────────────────────────
+async def _do_drive_upload(client, chat_id, data, target_path, chat_base,
+                           token, folder_id, remaining_quota, status_msg):
+    upload_path = target_path
+    if os.path.isdir(target_path):
+        await safe_edit(status_msg, "📦 در حال آماده‌سازی فایل...")
+        zip_path = os.path.join(chat_base, "drive_upload.zip")
+        proc = await asyncio.create_subprocess_exec(
+            "zip", "-r", zip_path, "-j", target_path,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        await proc.communicate()
+        upload_path = zip_path
+
+    file_size = os.path.getsize(upload_path)
+    if file_size > MAX_SIZE_LIMIT and chat_id != ADMIN_ID:
+        await safe_edit(status_msg,
+            f"❌ حجم فایل بیشتر از ۲ گیگابایت است ({file_size/(1024**3):.2f} GB)")
+        return
+
+    file_name = os.path.basename(upload_path)
+    try:
+        file_id, view_url, download_url = await drive_upload_file_stream(
+            token, upload_path, file_name, folder_id, status_msg, chat_id)
+    finally:
+        if upload_path != target_path and os.path.exists(upload_path):
+            os.unlink(upload_path)
+
+    if cancel_flags.get(chat_id): raise ValueError("CANCELLED")
+
+    quota_line = ("" if chat_id == ADMIN_ID
+                  else f"🔢 سهمیه باقیمانده امروز: **{remaining_quota - 1} آپلود**\n")
+
+    await safe_edit(status_msg, "✅ آپلود کامل شد!")
+    await client.send_message(chat_id,
+        f"✅ **آپلود به گوگل درایو موفق بود!**\n\n"
+        f"📄 نام فایل: `{file_name}`\n"
+        f"{quota_line}\n"
+        f"🔗 **مشاهده فایل:**\n`{view_url}`\n\n"
+        f"⬇️ **دانلود مستقیم:**\n`{download_url}`\n\n"
+        f"⚠️ برای فایل‌های بزرگ ممکن است گوگل نیاز به تأیید داشته باشد.")
+
+    record_drive_upload(chat_id)
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
