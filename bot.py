@@ -585,6 +585,45 @@ async def core_processing(client, chat_id, data):
         # ── دریافت فایل ──────────────────────────────────────────────────────────
         if data["type"] == "local_path":
             target_path = data["source"]
+        elif action == "multi":
+            for i, item in enumerate(data["multi_items"], 1):
+                p = os.path.join(in_dir, item["file_name"])
+                if item["type"] == "media":
+                    await client.download_media(item["source"], file_name=p,
+                        progress=progress_bar,
+                        progress_args=(status_msg, time.time(), f"دریافت فایل {i}", True))
+                elif item["type"] == "youtube":
+                    await safe_edit(status_msg,
+                        f"دانلود از یوتوب (آیتم {i})...", reply_markup=get_cancel_keyboard())
+                    qual = item.get("yt_quality", "720")
+                    if qual == "mp3":
+                        cmd = ["yt-dlp", "-f", "bestaudio[ext=m4a]/bestaudio",
+                               "-o", p + ".m4a"]
+                    else:
+                        cmd = ["yt-dlp", "-f",
+                               f"bestvideo[height<={qual}]+bestaudio/bestvideo+bestaudio/best",
+                               "--merge-output-format", "mp4", "-o", p + ".mp4"]
+                    if os.path.exists(COOKIES_FILE): cmd += ["--cookies", COOKIES_FILE]
+                    cmd.append(item["source"])
+                    if await run_yt_cmd(cmd, chat_id) != 0:
+                        raise ValueError("YOUTUBE_DOWNLOAD_FAILED")
+                else:
+                    async with aiohttp.ClientSession(headers=BROWSER_HEADERS) as s:
+                        async with s.get(item["source"], allow_redirects=True) as r:
+                            r.raise_for_status()
+                            total = int(r.headers.get('content-length', 0))
+                            if not check_size_limit(total, chat_id): raise ValueError("SIZE_LIMIT")
+                            cur = 0; st = time.time()
+                            with open(p, 'wb') as f:
+                                async for c in r.content.iter_chunked(1024 * 1024):
+                                    if cancel_flags.get(chat_id): raise ValueError("CANCELLED")
+                                    cur += len(c)
+                                    if not check_size_limit(cur, chat_id): raise ValueError("SIZE_LIMIT")
+                                    f.write(c)
+                                    if total > 0:
+                                        await progress_bar(cur, total, status_msg, st,
+                                                           f"دریافت لینک {i}", True)
+            target_path = in_dir
         elif data["type"] == "media":
             target_path = os.path.join(in_dir, data["file_name"])
             await client.download_media(data["source"], file_name=target_path,
@@ -695,18 +734,18 @@ async def core_processing(client, chat_id, data):
                                        remaining_d, status_msg)
                 uploaded_ok = True
 
-            final_source = target_path
             await safe_edit(status_msg, "در حال بسته‌بندی RAR...")
             archive_path = os.path.join(out_dir, "Mega-Leecher.rar")
             cmd = ["rar", "a", "-ep1", "-m0", "-rr5p", archive_path]
             if action not in ["full", "multi"]: cmd.append(f"-v{action}m")
             if password: cmd.append(f"-hp{password}")
-            if action == "multi":
-                cmd += [os.path.join(in_dir, f) for f in os.listdir(in_dir)]
-            elif os.path.isdir(final_source):
-                cmd.append(f"{final_source}/*")
+            if action == "multi" or os.path.isdir(target_path):
+                for fname in os.listdir(in_dir):
+                    cmd.append(os.path.join(in_dir, fname))
+            elif os.path.isdir(target_path):
+                cmd.append(f"{target_path}/*")
             else:
-                cmd.append(final_source)
+                cmd.append(target_path)
             proc = await asyncio.create_subprocess_exec(*cmd,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
