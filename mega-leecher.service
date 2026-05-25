@@ -1,0 +1,21 @@
+[Unit]
+Description=Mega Leecher Telegram Bot
+Documentation=https://github.com/rezarg-dev/Mega-leecher
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/mega-leecher
+ExecStart=/opt/mega-leecher/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Restart on failure but not on clean exit
+SuccessExitStatus=0
+
+[Install]
+WantedBy=multi-user.target
