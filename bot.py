@@ -720,14 +720,14 @@ async def core_processing(client, chat_id, data):
                                        remaining_d, status_msg)
                 uploaded_ok = True
 
+        elif action not in ("raw",):
             await safe_edit(status_msg, "در حال بسته‌بندی RAR...")
             archive_path = os.path.join(out_dir, "Mega-Leecher.rar")
             cmd = ["rar", "a", "-ep1", "-m0", "-rr5p", archive_path]
             if action not in ["full", "multi"]: cmd.append(f"-v{action}m")
             if password: cmd.append(f"-hp{password}")
-            if action == "multi" or os.path.isdir(target_path):
-                for fname in os.listdir(in_dir):
-                    cmd.append(os.path.join(in_dir, fname))
+            if action == "multi":
+                cmd += [os.path.join(in_dir, f) for f in os.listdir(in_dir)]
             elif os.path.isdir(target_path):
                 cmd.append(f"{target_path}/*")
             else:
