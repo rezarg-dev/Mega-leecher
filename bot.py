@@ -560,27 +560,17 @@ async def core_processing(client, chat_id, data):
         if action == "gdrive":
             db = load_drive_db(); uid = str(chat_id)
             if uid not in db:
-                await safe_edit(status_msg, "❌ حساب گوگل متصل نشده.
-از منوی 📂 اتصال به گوگل درایو متصل شوید."); return
+                await safe_edit(status_msg, "Account not connected.\nPlease connect via Google Drive menu."); return
             allowed_d, remaining_d = check_drive_quota(chat_id)
             if not allowed_d:
-                await safe_edit(status_msg,
-                    f"⛔️ **سهمیه روزانه آپلود به گوگل درایو تمام شده!**
-"
-                    f"هر کاربر روزانه {DRIVE_DAILY_LIMIT} آپلود مجاز است."); return
+                await safe_edit(status_msg, f"Daily Google Drive quota reached! ({DRIVE_DAILY_LIMIT} uploads/day)"); return
         elif action == "github":
             db = load_github_db(); uid = str(chat_id)
             if uid not in db:
-                await safe_edit(status_msg, "❌ توکن گیتهاب تنظیم نشده.
-از منوی ☁️ اتصال به گیتهاب توکن وارد کنید."); return
+                await safe_edit(status_msg, "GitHub token not set.\nPlease connect via GitHub menu."); return
             allowed_gh, remaining_gh = check_gh_quota(chat_id)
             if not allowed_gh:
-                await safe_edit(status_msg,
-                    f"⛔️ **سهمیه روزانه آپلود به گیتهاب تمام شده!**
-"
-                    f"هر کاربر روزانه {GITHUB_DAILY_LIMIT} آپلود مجاز است.
-"
-                    "سهمیه به صورت rolling در ۲۴ ساعت تجدید می‌شود."); return
+                await safe_edit(status_msg, f"Daily GitHub quota reached! ({GITHUB_DAILY_LIMIT} uploads/day)"); return
 
         # ── دریافت فایل ──────────────────────────────────────────────────────────
         if data["type"] == "local_path":
@@ -687,9 +677,7 @@ async def core_processing(client, chat_id, data):
             if chat_id != ADMIN_ID:
                 if GITHUB_GLOBAL_SEM.locked():
                     await safe_edit(status_msg,
-                        "⏳ **صف آپلود گیتهاب**
-
-به محض آزاد شدن، آپلود شروع می‌شود...",
+                        "Queued for GitHub upload. Starting soon...",
                         reply_markup=get_cancel_keyboard())
                 async with GITHUB_GLOBAL_SEM:
                     await _do_github_upload(client, chat_id, data, target_path,
@@ -719,9 +707,7 @@ async def core_processing(client, chat_id, data):
             if chat_id != ADMIN_ID:
                 if DRIVE_GLOBAL_SEM.locked():
                     await safe_edit(status_msg,
-                        "⏳ **صف آپلود گوگل درایو**
-
-به محض آزاد شدن، آپلود شروع می‌شود...",
+                        "Queued for Google Drive upload. Starting soon...",
                         reply_markup=get_cancel_keyboard())
                 async with DRIVE_GLOBAL_SEM:
                     await _do_drive_upload(client, chat_id, data, target_path,
