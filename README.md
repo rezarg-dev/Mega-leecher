@@ -169,10 +169,25 @@ Send **📂 اتصال به گوگل درایو** to the bot and follow the step
 
 ## 🎬 YouTube Cookies (Optional)
 
-To download age-restricted or member-only videos, place a `cookies.txt` file in the bot directory:
+To download age-restricted or member-only videos, you need to provide a `cookies.txt` file from a logged-in YouTube session.
 
+### Step 1 — Browse YouTube first
+Open Firefox, log in to your Google account, and browse YouTube for a few minutes. This ensures fresh, valid session cookies are stored in your browser.
+
+### Step 2 — Install the extension
+Install the **"Get cookies.txt LOCALLY"** extension from the Firefox Add-ons store.
+
+> ⚠️ Make sure to use Firefox, not Chrome. The extension works more reliably with YouTube on Firefox.
+
+### Step 3 — Export cookies
+1. Go to [youtube.com](https://youtube.com) while logged in
+2. Click the extension icon in the toolbar
+3. Set **Export Format** to `Netscape`
+4. Click **Export As** and save the file
+5. Rename the saved file to `cookies.txt`
+
+### Step 4 — Place the file on your server
 ```bash
-# Export cookies from Chrome using the "Get cookies.txt LOCALLY" extension
 cp cookies.txt /opt/mega-leecher/cookies.txt
 systemctl restart mega-leecher
 ```
