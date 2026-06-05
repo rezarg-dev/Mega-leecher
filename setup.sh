@@ -421,16 +421,75 @@ do_clean_temp() {
 }
 
 do_update() {
-    echo -e "${CYAN}  --> Updating from GitHub...${RESET}"
+    local REPO_RAW="https://raw.githubusercontent.com/rezarg-dev/Mega-leecher/main"
+    local FILES_TO_UPDATE=("bot.py" "config.py")
+    local PRESERVE=("config.env" "users_db.json" "github_db.json" "drive_db.json" "cookies.txt" "temp")
+
+    echo -e "${CYAN}  --> Checking latest commit on GitHub...${RESET}"
+
+    # Get latest commit SHA
+    local LATEST_SHA
+    LATEST_SHA=$(curl -sf "https://api.github.com/repos/rezarg-dev/Mega-leecher/commits/main" \
+        | grep '"sha"' | head -1 | cut -d'"' -f4 | cut -c1-7)
+
+    if [[ -z "$LATEST_SHA" ]]; then
+        echo -e "${RED}  [ERR] Could not reach GitHub. Check your internet connection.${RESET}"
+        return
+    fi
+
+    # Check current version
+    local CURRENT_SHA=""
+    [[ -f "$INSTALL_DIR/.version" ]] && CURRENT_SHA=$(cat "$INSTALL_DIR/.version")
+
+    if [[ "$CURRENT_SHA" == "$LATEST_SHA" ]]; then
+        echo -e "${GREEN}  [OK] Already up to date (commit: $LATEST_SHA)${RESET}"
+        return
+    fi
+
+    echo -e "${CYAN}  --> Updating to commit: ${BOLD}$LATEST_SHA${RESET}"
+    echo -e "${DIM}  Preserving: config.env, databases, cookies, temp files${RESET}\n"
+
+    # Stop bot
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    if [[ -d "$INSTALL_DIR/.git" ]]; then
-        cd "$INSTALL_DIR" && git pull origin main
-        systemctl start "$SERVICE_NAME"
-        echo -e "${GREEN}  [OK] Updated and restarted${RESET}"
-    else
-        echo -e "${YELLOW}  [!!] Not a git clone — manual update required${RESET}"
-        echo -e "${DIM}  Copy new bot.py and config.py to $INSTALL_DIR, then restart.${RESET}"
+
+    # Download updated files only
+    local failed=0
+    for f in "${FILES_TO_UPDATE[@]}"; do
+        echo -e "${CYAN}  --> Downloading $f...${RESET}"
+        if curl -sf "$REPO_RAW/$f" -o "$INSTALL_DIR/$f.tmp"; then
+            mv "$INSTALL_DIR/$f.tmp" "$INSTALL_DIR/$f"
+            echo -e "${GREEN}  [OK] $f updated${RESET}"
+        else
+            rm -f "$INSTALL_DIR/$f.tmp"
+            echo -e "${RED}  [ERR] Failed to download $f${RESET}"
+            failed=1
+        fi
+    done
+
+    if [[ $failed -eq 1 ]]; then
+        echo -e "${RED}  [ERR] Update incomplete. Starting bot with previous version.${RESET}"
         systemctl start "$SERVICE_NAME" 2>/dev/null || true
+        return
+    fi
+
+    # Validate syntax before restarting
+    if ! "$INSTALL_DIR/venv/bin/python" -m py_compile "$INSTALL_DIR/bot.py" 2>/dev/null; then
+        echo -e "${RED}  [ERR] bot.py syntax check failed. Rolling back is not possible.${RESET}"
+        echo -e "${YELLOW}  [!!] Bot will not start until the issue is resolved.${RESET}"
+        return
+    fi
+
+    # Save current version
+    echo "$LATEST_SHA" > "$INSTALL_DIR/.version"
+
+    # Restart bot
+    systemctl start "$SERVICE_NAME"
+    sleep 2
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        echo -e "${GREEN}  [OK] Bot updated and restarted successfully!${RESET}"
+        echo -e "${DIM}  Version: $LATEST_SHA${RESET}"
+    else
+        echo -e "${RED}  [ERR] Bot failed to start after update. Check logs (option 4).${RESET}"
     fi
 }
 
