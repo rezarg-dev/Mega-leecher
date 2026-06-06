@@ -422,7 +422,7 @@ do_clean_temp() {
 
 do_update() {
     local REPO_RAW="https://raw.githubusercontent.com/rezarg-dev/Mega-leecher/main"
-    local FILES_TO_UPDATE=("bot.py" "config.py")
+    local FILES_TO_UPDATE=("bot.py" "config.py" "lang.py")
     local PRESERVE=("config.env" "users_db.json" "github_db.json" "drive_db.json" "cookies.txt" "temp")
 
     echo -e "${CYAN}  --> Checking latest commit on GitHub...${RESET}"
