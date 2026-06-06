@@ -16,10 +16,12 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceRepl
 from pyrogram.errors import FloodWait
 
 # --- تنظیمات اصلی (از config.env خوانده می‌شوند) ---
+# --- Main settings (loaded from config.env) ---
 from config import (
     API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, PURCHASE_USERNAME,
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, INSTALL_DIR
 )
+from lang import STRINGS, T as _T
 DB_FILE = "users_db.json"
 GITHUB_DB_FILE = "github_db.json"
 COOKIES_FILE = "cookies.txt"
@@ -93,6 +95,24 @@ def init_databases():
                 json.dump({}, f)
 
 init_databases()
+
+# ================= مدیریت زبان / Language Management =================
+def get_user_lang(user_id):
+    # دریافت زبان کاربر از دیتابیس / Get user language from database
+    users = load_users(); uid = str(user_id)
+    d = users.get(uid, {})
+    return d.get("lang", "fa") if isinstance(d, dict) else "fa"
+
+def set_user_lang(user_id, lang):
+    # ذخیره زبان کاربر در دیتابیس / Save user language to database
+    users = load_users(); uid = str(user_id)
+    if uid not in users: users[uid] = {"expire": 0, "lang": lang, "yt_history": []}
+    elif isinstance(users[uid], dict): users[uid]["lang"] = lang
+    save_users(users)
+
+def T(user_id, key, **kwargs):
+    # ترجمه رشته بر اساس زبان کاربر / Translate string based on user language
+    return _T(get_user_lang(user_id), key, **kwargs)
 
 def has_drive_connected(user_id):
     return str(user_id) in load_drive_db()
@@ -186,7 +206,7 @@ async def drive_upload_file_stream(token, file_path, file_name, folder_id, statu
                      "X-Upload-Content-Length": str(file_size)},
             json={"name": file_name, "parents": [folder_id]})
         if r.status_code != 200:
-            raise Exception(f"خطا در شروع آپلود: {r.status_code}")
+            raise Exception(T(chat_id,"gd_upload_start_error",code=r.status_code))
         upload_url = r.headers["Location"]
     last_t = [time.time()]; sent = [0]
     async def file_iter():
@@ -202,15 +222,14 @@ async def drive_upload_file_stream(token, file_path, file_name, folder_id, statu
                     pct = sent[0] * 100 // file_size
                     bar = "■"*(pct//10) + "□"*(10-pct//10)
                     await safe_edit(status_msg,
-                        f"📂 **آپلود به گوگل درایو...**\n[{bar}] {pct}%\n"
-                        f"{sent[0]/(1024*1024):.1f} MB از {file_size/(1024*1024):.1f} MB",
+                        T(chat_id,"gd_uploading",bar=bar,pct=pct,sent=sent[0]/(1024*1024),total=file_size/(1024*1024)),
                         reply_markup=get_cancel_keyboard())
                 yield chunk
     async with httpx.AsyncClient(timeout=3600) as c:
         r = await c.put(upload_url, content=file_iter(),
             headers={"Content-Length": str(file_size), "Content-Type": "application/octet-stream"})
         if r.status_code not in (200, 201):
-            raise Exception(f"آپلود ناموفق: {r.status_code}")
+            raise Exception(T(chat_id,"gd_upload_fail",code=r.status_code))
         file_id = r.json()["id"]
         await c.post(f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -246,7 +265,7 @@ async def drive_clear_all_files(token, folder_id, status_msg):
                 headers={"Authorization": f"Bearer {token}"})
             if r.status_code == 204:
                 deleted += 1
-                await safe_edit(status_msg, f"🗑 در حال پاکسازی... ({deleted} فایل حذف شد)")
+                await safe_edit(status_msg, T(0,"gd_clearing_file",deleted=deleted))
     return deleted
 
 # ================= توابع دسترسی =================
@@ -357,7 +376,7 @@ async def gh_upload_file(token, username, repo, local_path, status_msg, chat_id)
     clone_dir = os.path.join(TEMP_DIR, f"gh_{chat_id}_{ts}")
 
     try:
-        await safe_edit(status_msg, "☁️ در حال آماده‌سازی...", reply_markup=get_cancel_keyboard())
+        await safe_edit(status_msg, T(chat_id,"gh_preparing"), reply_markup=get_cancel_keyboard(chat_id))
         os.makedirs(clone_dir, exist_ok=True)
         clone_url = f"https://{username}:{token}@github.com/{username}/{repo}.git"
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
@@ -394,10 +413,10 @@ async def gh_upload_file(token, username, repo, local_path, status_msg, chat_id)
                 chunk_mb = len(chunk) / (1024 * 1024)
 
                 bar = "■"*(i*10//n_parts) + "□"*(10-i*10//n_parts)
+                bar = "■"*(i*10//n_parts) + "□"*(10-i*10//n_parts)
                 await safe_edit(status_msg,
-                    f"☁️ **آپلود به گیتهاب...**\n[{bar}] {i*100//n_parts}%\n"
-                    f"پارت {i} از {n_parts}  ({chunk_mb:.1f} MB)",
-                    reply_markup=get_cancel_keyboard())
+                    T(chat_id,"gh_uploading",bar=bar,pct=i*100//n_parts,i=i,n=n_parts,mb=chunk_mb),
+                    reply_markup=get_cancel_keyboard(chat_id))
 
                 with open(chunk_path, 'wb') as cf:
                     cf.write(chunk)
@@ -445,7 +464,7 @@ async def gh_delete_file(token, username, repo, path, sha):
 async def gh_clear_all(token, username, repos, status_msg):
     """پاکسازی با git — حذف پوشه uploads از ریپو"""
     for i, repo in enumerate(repos, 1):
-        await safe_edit(status_msg, f"🗑 در حال پاکسازی ریپازیتوری {i} از {len(repos)}...")
+        await safe_edit(status_msg, T(chat_id,"gh_clear_repo",i=i,total=len(repos)))
         clone_dir = os.path.join(TEMP_DIR, f"gh_clear_{int(time.time())}_{i}")
         try:
             os.makedirs(clone_dir, exist_ok=True)
@@ -570,25 +589,29 @@ async def safe_final_edit(message, bot_msg, text, reply_markup=None):
         try: await message.reply(text, reply_markup=reply_markup)
         except: pass
 
-def get_cancel_keyboard():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو عملیات", callback_data="cancel_task")]])
+def get_cancel_keyboard(user_id=0):
+    # دکمه لغو عملیات / Cancel operation button
+    return InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id, "btn_cancel_op"), callback_data="cancel_task")]])
 
 def get_main_keyboard(user_id=None):
+    # منوی اینلاین پردازش فایل / Inline file processing menu
+    uid = user_id or 0
     kb = [
-        [InlineKeyboardButton("ارسال فایل خام (بدون تغییر)", callback_data="size_raw")],
-        [InlineKeyboardButton("ارسال به صورت تک فایل RAR", callback_data="size_full")],
-        [InlineKeyboardButton("ایجاد آرشیو چند فایلی", callback_data="size_multi")],
-        [InlineKeyboardButton("پارت‌های ۱۹ مگ", callback_data="size_19"),
-         InlineKeyboardButton("پارت‌های ۴۰ مگ", callback_data="size_40"),
-         InlineKeyboardButton("پارت‌های ۹۰۰ مگ", callback_data="size_900")]
+        [InlineKeyboardButton(T(uid, "btn_raw"),       callback_data="size_raw")],
+        [InlineKeyboardButton(T(uid, "btn_full_rar"),  callback_data="size_full")],
+        [InlineKeyboardButton(T(uid, "btn_multi_rar"), callback_data="size_multi")],
+        [InlineKeyboardButton(T(uid, "btn_19mb"),      callback_data="size_19"),
+         InlineKeyboardButton(T(uid, "btn_40mb"),      callback_data="size_40"),
+         InlineKeyboardButton(T(uid, "btn_900mb"),     callback_data="size_900")]
     ]
     if user_id and has_github_token(user_id):
-        kb.append([InlineKeyboardButton("☁️ آپلود به گیتهاب", callback_data="size_github")])
+        kb.append([InlineKeyboardButton(T(uid, "btn_github_upload"), callback_data="size_github")])
     if user_id and has_drive_connected(user_id):
-        kb.append([InlineKeyboardButton("📂 آپلود به گوگل درایو", callback_data="size_gdrive")])
+        kb.append([InlineKeyboardButton(T(uid, "btn_drive_upload"), callback_data="size_gdrive")])
     return InlineKeyboardMarkup(kb)
 
-async def progress_bar(current, total, status_msg, start_time, action_text, is_cancellable=False):
+async def progress_bar(current, total, status_msg, start_time, action_text, is_cancellable=False, user_id=0):
+    # نوار پیشرفت دانلود/آپلود / Download/upload progress bar
     chat_id = status_msg.chat.id
     if is_cancellable and cancel_flags.get(chat_id): raise ValueError("CANCELLED")
     now = time.time()
@@ -600,27 +623,33 @@ async def progress_bar(current, total, status_msg, start_time, action_text, is_c
     speed = current/diff/1024
     bar = "■"*int(pct/10) + "□"*(10-int(pct/10))
     await safe_edit(status_msg,
-        f"وضعیت: {action_text}\n[{bar}] {pct:.1f}%\nسرعت: {speed:.1f} KB/s\n"
-        f"حجم: {current/(1024*1024):.1f}MB از {total/(1024*1024):.1f}MB",
-        get_cancel_keyboard() if is_cancellable else None)
+        T(user_id, "progress",
+          action=action_text, bar=bar, pct=pct, speed=speed,
+          cur=current/(1024*1024), total=total/(1024*1024)),
+        get_cancel_keyboard(user_id) if is_cancellable else None)
 
 def get_reply_menu(user_id):
+    # منوی اصلی ربات / Main bot reply menu
     keyboard = [
-        [KeyboardButton("🌐 راهنمای لینک مستقیم"), KeyboardButton("🧲 راهنمای تورنت")],
-        [KeyboardButton("📁 راهنمای کار با فایل‌های تلگرامی"), KeyboardButton("🎬 راهنمای دانلود از یوتوب")],
-        [KeyboardButton("☁️ اتصال به گیتهاب"), KeyboardButton("📂 اتصال به گوگل درایو")]
+        [KeyboardButton(T(user_id, "btn_direct_link")), KeyboardButton(T(user_id, "btn_torrent"))],
+        [KeyboardButton(T(user_id, "btn_tg_files")),    KeyboardButton(T(user_id, "btn_youtube"))],
+        [KeyboardButton(T(user_id, "btn_github")),      KeyboardButton(T(user_id, "btn_drive"))]
     ]
     if user_id == ADMIN_ID:
-        keyboard += [[KeyboardButton("➕ افزودن کاربر"), KeyboardButton("➖ حذف کاربر")],
-                     [KeyboardButton("➕ افزودن کاربر یوتوب"), KeyboardButton("📋 لیست کاربران")],
-                     [KeyboardButton("🧹 پاکسازی ربات")]]
+        keyboard += [
+            [KeyboardButton(T(user_id, "btn_add_user")),    KeyboardButton(T(user_id, "btn_del_user"))],
+            [KeyboardButton(T(user_id, "btn_add_yt_user")), KeyboardButton(T(user_id, "btn_user_list"))],
+            [KeyboardButton(T(user_id, "btn_clean_bot"))]
+        ]
     else:
-        keyboard.append([KeyboardButton("🛒 خرید / تمدید اشتراک")])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, placeholder="انتخاب کنید...")
+        keyboard.append([KeyboardButton(T(user_id, "btn_purchase"))])
+    keyboard.append([KeyboardButton(T(user_id, "btn_language"))])
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, placeholder=T(user_id, "menu_placeholder"))
 
 # ================= گارد محافظ =================
 @app.on_message(filters.all & filters.incoming, group=-1)
 async def access_checker_middleware(client, message):
+    # محافظ دسترسی — بررسی اشتراک کاربر / Access guard — check user subscription
     if not message.from_user: return
     try:
         msg_ts = message.date.timestamp() if hasattr(message.date,'timestamp') else float(message.date)
@@ -628,143 +657,107 @@ async def access_checker_middleware(client, message):
     if msg_ts < BOT_START_TIME:
         message.stop_propagation(); return
     chat_id = message.chat.id; user_id = message.from_user.id; text = message.text or ""
-    allowed = ["/start","🌐 راهنمای لینک مستقیم","🧲 راهنمای تورنت","📁 راهنمای کار با فایل‌های تلگرامی",
-               "🎬 راهنمای دانلود از یوتوب","🛒 خرید / تمدید اشتراک","☁️ اتصال به گیتهاب","📂 اتصال به گوگل درایو"]
+    # دکمه‌های مجاز بدون نیاز به اشتراک (فارسی و انگلیسی) / Free buttons (Persian and English)
+    free_fa = ["/start",
+               STRINGS["fa"]["btn_direct_link"], STRINGS["fa"]["btn_torrent"],
+               STRINGS["fa"]["btn_tg_files"],    STRINGS["fa"]["btn_youtube"],
+               STRINGS["fa"]["btn_purchase"],    STRINGS["fa"]["btn_github"],
+               STRINGS["fa"]["btn_drive"],       STRINGS["fa"]["btn_language"]]
+    free_en = [STRINGS["en"]["btn_direct_link"], STRINGS["en"]["btn_torrent"],
+               STRINGS["en"]["btn_tg_files"],    STRINGS["en"]["btn_youtube"],
+               STRINGS["en"]["btn_purchase"],    STRINGS["en"]["btn_github"],
+               STRINGS["en"]["btn_drive"],       STRINGS["en"]["btn_language"]]
+    allowed = free_fa + free_en
     if chat_id in user_states and user_states[chat_id].get("admin_action"): return
     if text in allowed: return
     if f"gh_{chat_id}" in user_states: return
     if f"gd_{chat_id}" in user_states: return
     if not has_access(user_id):
-        await message.reply(f"⛔️ **شما هیچ اشتراک فعالی ندارید!**\n\nبرای خرید:\n👤 {PURCHASE_USERNAME}\n🆔 `{user_id}`")
+        await message.reply(T(user_id, "no_subscription", purchase=PURCHASE_USERNAME, uid=user_id))
         message.stop_propagation()
 
 # ================= هندلرهای پیام =================
 @app.on_message(filters.command("start"))
 async def start(client, message):
+    # نمایش انتخاب زبان هنگام شروع / Show language selection on start
     await message.reply(
-        "👋 **خوش آمدید!**\n\n"
-        "🤖 این ربات یک ابزار حرفه‌ای برای پردازش و مدیریت فایل است.\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "📦 **قابلیت‌های پردازش فایل:**\n"
-        "• تقسیم فایل به پارت‌های ۱۹، ۴۰ یا ۹۰۰ مگابایتی\n"
-        "• فشرده‌سازی در قالب RAR با رمز عبور دلخواه\n"
-        "• ارسال فایل خام بدون تغییر\n"
-        "• پشتیبانی از فایل‌های فشرده رمزدار (بدون نیاز به رمز)\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "⬇️ **قابلیت‌های دانلود:**\n"
-        "• دانلود از **لینک مستقیم**\n"
-        "• دانلود از **تورنت** (مگنت یا فایل .torrent)\n"
-        "• دانلود از **یوتوب** با کیفیت‌های مختلف تا 1080p\n"
-        "• دانلود فقط صدا از یوتوب (MP3)\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "☁️ **فضای ابری رایگان:**\n"
-        "• آپلود فایل‌ها به **گیتهاب** و دریافت لینک دانلود مستقیم\n"
-        "• تا **۱۵ گیگابایت** فضای رایگان با توکن شخصی\n"
-        "• آپلود فایل‌ها به **گوگل درایو** و دریافت لینک اشتراک‌گذاری\n"
-        "• تا **۱۵ گیگابایت** فضای رایگان با حساب گوگل\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "📋 برای شروع از منوی پایین استفاده کنید 👇",
-        reply_markup=get_reply_menu(message.from_user.id)
+        T(message.from_user.id, "choose_language"),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🇮🇷 Persian (فارسی)", callback_data="setlang_fa"),
+             InlineKeyboardButton("🇺🇸 English",          callback_data="setlang_en")]
+        ])
     )
 
-@app.on_message(filters.text & filters.regex("^(🌐 راهنمای لینک مستقیم|🧲 راهنمای تورنت|📁 راهنمای کار با فایل‌های تلگرامی|🎬 راهنمای دانلود از یوتوب|🛒 خرید / تمدید اشتراک)$"))
+@app.on_callback_query(filters.regex("^setlang_"))
+async def setlang_callback(client, cq):
+    # پردازش انتخاب زبان / Process language selection
+    await cq.answer()
+    lang = cq.data.split("_")[1]
+    user_id = cq.from_user.id
+    set_user_lang(user_id, lang)
+    confirm_key = "lang_changed_en" if lang == "en" else "lang_changed_fa"
+    await safe_edit(cq.message, T(user_id, confirm_key))
+    await client.send_message(cq.message.chat.id, T(user_id, "welcome"),
+                               reply_markup=get_reply_menu(user_id))
+
+@app.on_message(filters.text & filters.regex(
+    "^(🌐 راهنمای لینک مستقیم|🌐 Direct Link Guide"
+    "|🧲 راهنمای تورنت|🧲 Torrent Guide"
+    "|📁 راهنمای کار با فایل‌های تلگرامی|📁 Telegram Files Guide"
+    "|🎬 راهنمای دانلود از یوتوب|🎬 YouTube Download Guide"
+    "|🛒 خرید / تمدید اشتراک|🛒 Buy / Renew Subscription"
+    "|🌐 تغییر زبان|🌐 Change Language)$"))
 async def handle_user_menus(client, message):
     t = message.text; uid = message.from_user.id
-    if "لینک مستقیم" in t:
-        await message.reply(
-            "**🌐 راهنمای دانلود از لینک مستقیم:**\n\n"
-            "کافیه لینک دانلود فایل رو مستقیم داخل چت بفرستید — ربات بقیه کار رو میکنه.\n\n"
-            "📌 **چه لینک‌هایی پشتیبانی میشن؟**\n"
-            "• هر لینکی که مستقیم به یه فایل اشاره کنه\n"
-            "• ویدیو، موزیک، زیپ، PDF، APK، EXE و هر فرمت دیگه‌ای\n"
-            "• حجم دانلود تا **۲ گیگابایت**\n\n"
-            "⚙️ **بعد از دانلود چه کارهایی میشه کرد؟**\n"
-            "• 📤 ارسال فایل خام (بدون هیچ تغییری)\n"
-            "• 🗜 فشرده‌سازی در قالب **RAR** با یا بدون رمز عبور\n"
-            "• ✂️ تقسیم به پارت‌های **۱۹، ۴۰ یا ۹۰۰ مگابایتی**\n"
-            "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم\n\n"
-            "💡 **نکته:** اگه چند فایل از چند لینک مختلف داری، میتونی همه رو بفرستی و در یک آرشیو RAR واحد تحویل بگیری."
-        )
-    elif "تورنت" in t:
-        await message.reply(
-            "**🧲 راهنمای دانلود تورنت:**\n\n"
-            "دو روش برای ارسال تورنت وجود داره:\n\n"
-            "1️⃣ **لینک مگنت** — لینکی که با `magnet:?xt=` شروع میشه رو مستقیم داخل چت بفرستید\n\n"
-            "2️⃣ **فایل .torrent** — فایل تورنت رو آپلود کنید\n\n"
-            "📌 **نکات مهم:**\n"
-            "• ربات ابتدا متادیتا (اطلاعات فایل) رو دریافت میکنه، بعد دانلود شروع میشه\n"
-            "• اگه تورنت سید نداشته باشه، دانلود ممکنه زمان ببره یا ناقص بمونه\n"
-            "• حجم تا **۲ گیگابایت** برای کاربران عادی\n"
-            "• اگه سرور شلوغ باشه، درخواست در صف قرار میگیره و نوبتی پردازش میشه\n\n"
-            "⚙️ **بعد از دانلود چه کارهایی میشه کرد؟**\n"
-            "• 📤 ارسال فایل خام (بدون تغییر)\n"
-            "• 🗜 فشرده‌سازی **RAR** با رمز عبور دلخواه\n"
-            "• ✂️ تقسیم به پارت‌های **۱۹، ۴۰ یا ۹۰۰ مگابایتی**\n"
-            "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم"
-        )
-    elif "فایل‌های تلگرامی" in t:
-        await message.reply(
-            "**📁 راهنمای کار با فایل‌های تلگرامی:**\n\n"
-            "فایل، ویدیو، موزیک یا هر محتوایی رو که در تلگرام دارید **فوروارد** کنید یا مستقیم **آپلود** کنید.\n\n"
-            "📌 **چه فایل‌هایی پشتیبانی میشن؟**\n"
-            "• تمام فرمت‌ها: ویدیو، صدا، زیپ، RAR، 7z، PDF و...\n"
-            "• فایل‌های فشرده **رمزدار** — نیازی به وارد کردن رمز نیست، مستقیم پارت‌بندی میشن\n"
-            "• چندین فایل مختلف رو میتونید یکجا بفرستید و در **یک آرشیو RAR** تحویل بگیرید\n"
-            "• حجم تا **۲ گیگابایت** برای کاربران عادی\n\n"
-            "⚙️ **بعد از دریافت چه کارهایی میشه کرد؟**\n"
-            "• 📤 ارسال فایل خام (ویدیو به صورت استریم‌پذیر در تلگرام)\n"
-            "• 🗜 فشرده‌سازی در قالب **RAR** با یا بدون رمز عبور\n"
-            "• ✂️ تقسیم به پارت‌های **۱۹، ۴۰ یا ۹۰۰ مگابایتی**\n"
-            "• 📦 ترکیب چند فایل در **یک آرشیو چندفایلی**\n"
-            "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم"
-        )
-    elif "یوتوب" in t:
-        await message.reply(
-            "**🎬 راهنمای دانلود از یوتوب:**\n\n"
-            "کافیه لینک ویدیوی یوتوب رو مستقیم داخل چت بفرستید.\n\n"
-            "📌 **کیفیت‌های قابل دانلود:**\n• 360p • 480p • 720p • 1080p • 🎵 فقط صدا\n\n"
-            "⚡️ حجم تقریبی هر کیفیت نمایش داده میشه.\n"
-            "🔢 سهمیه روزانه: **۱۰ ویدیو** در هر ۲۴ ساعت.")
-    elif "خرید" in t:
+    if "لینک مستقیم" in t or "Direct Link Guide" in t:
+        await message.reply(T(uid, "guide_direct"))
+    elif "تورنت" in t or "Torrent Guide" in t:
+        await message.reply(T(uid, "guide_torrent"))
+    elif "فایل‌های تلگرامی" in t or "Telegram Files Guide" in t:
+        await message.reply(T(uid, "guide_tg_files"))
+    elif "یوتوب" in t or "YouTube Download Guide" in t:
+        await message.reply(T(uid, "guide_youtube"))
+    elif "خرید" in t or "Buy / Renew Subscription" in t:
         users = load_users()
         uid_str = str(uid)
         if has_access(uid) and uid_str in users and isinstance(users[uid_str], dict):
             expire = users[uid_str].get("expire", 0)
             if expire > time.time():
                 rem_days = int((expire - time.time()) // 86400)
-                await message.reply(
-                    f"✅ **شما دارای اشتراک فعال هستید.**\n\n"
-                    f"⏳ روزهای باقیمانده: **{rem_days} روز**"
-                )
+                await message.reply(T(uid, "sub_active", days=rem_days))
             else:
-                await message.reply(f"⛔️ جهت خرید یا تمدید به {PURCHASE_USERNAME} پیام دهید.\n🆔 آیدی عددی شما: `{uid}`")
+                await message.reply(T(uid, "sub_renew", purchase=PURCHASE_USERNAME, uid=uid))
         else:
-            await message.reply(f"⛔️ جهت خرید اشتراک به {PURCHASE_USERNAME} پیام دهید.\n🆔 آیدی عددی شما: `{uid}`")
+            await message.reply(T(uid, "sub_buy", purchase=PURCHASE_USERNAME, uid=uid))
+    elif "تغییر زبان" in t or "Change Language" in t:
+        await message.reply(
+            T(uid, "choose_language"),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🇮🇷 Persian (فارسی)", callback_data="setlang_fa"),
+                 InlineKeyboardButton("🇺🇸 English",          callback_data="setlang_en")]
+            ])
+        )
 
 # ================= منوی گیتهاب =================
-@app.on_message(filters.text & filters.regex("^📂 اتصال به گوگل درایو$"))
+@app.on_message(filters.text & filters.regex("^(📂 اتصال به گوگل درایو|📂 Connect Google Drive)$"))
 async def drive_menu(client, message):
     user_id = message.from_user.id
     if not has_access(user_id):
-        await message.reply(f"⛔️ این قابلیت فقط برای کاربران دارای اشتراک است.\n👤 {PURCHASE_USERNAME}")
+        await message.reply(T(user_id, "feature_needs_sub", purchase=PURCHASE_USERNAME))
         return
     db = load_drive_db(); uid = str(user_id); has_d = uid in db
-    status = "✅ متصل" if has_d else "❌ متصل نشده"
+    status = T(user_id, "gd_connected") if has_d else T(user_id, "gd_not_connected")
     buttons = [
-        [InlineKeyboardButton("📖 راهنمای گام به گام", callback_data="gd_guide")],
-        [InlineKeyboardButton("📥 راهنمای دانلود لینک‌ها", callback_data="gd_dl_guide")],
-        [InlineKeyboardButton("🔗 اتصال حساب گوگل", callback_data="gd_connect")]
+        [InlineKeyboardButton(T(user_id,"gd_btn_guide"), callback_data="gd_guide")],
+        [InlineKeyboardButton(T(user_id,"gd_btn_dl_guide"), callback_data="gd_dl_guide")],
+        [InlineKeyboardButton(T(user_id,"gd_btn_connect"), callback_data="gd_connect")]
     ]
     if has_d:
-        buttons.append([InlineKeyboardButton("📊 فضای باقیمانده", callback_data="gd_space")])
-        buttons.append([InlineKeyboardButton("🗑 پاکسازی فایل‌های آپلودشده", callback_data="gd_clear")])
-        buttons.append([InlineKeyboardButton("❌ قطع اتصال", callback_data="gd_disconnect")])
+        buttons.append([InlineKeyboardButton(T(user_id,"gd_btn_space"), callback_data="gd_space")])
+        buttons.append([InlineKeyboardButton(T(user_id,"gd_btn_clear"), callback_data="gd_clear")])
+        buttons.append([InlineKeyboardButton(T(user_id,"gd_btn_disconnect"), callback_data="gd_disconnect")])
     await message.reply(
-        f"📂 **مدیریت گوگل درایو**\n\nوضعیت: {status}\n\n"
-        "با اتصال به گوگل درایو می‌توانید فایل‌ها را مستقیماً آپلود کنید و لینک اشتراک‌گذاری دریافت کنید.\n\n"
-        "💾 ظرفیت رایگان: **۱۵ گیگابایت**\n"
-        "📦 حداکثر حجم هر فایل: **۲ گیگابایت** (کاربران عادی)\n"
-        "🔢 سهمیه روزانه: **۱۰ آپلود**",
+        T(user_id,"gd_menu_title",status=status),
         reply_markup=InlineKeyboardMarkup(buttons))
 
 @app.on_callback_query(filters.regex("^gd_"))
@@ -774,56 +767,32 @@ async def drive_callback(client, cq):
 
     if action == "gd_guide":
         await safe_edit(cq.message,
-            "📖 **راهنمای اتصال به گوگل درایو**\n\n"
-            "**مرحله ۱ — باز کردن لینک:**\n"
-            "① روی دکمه **اتصال حساب گوگل** بزنید\n"
-            "② لینکی دریافت می‌کنید\n"
-            "③ لینک را **کپی** کنید\n"
-            "④ مرورگر **Chrome** یا **Safari** را باز کنید\n"
-            "   ⚠️ لینک را در مرورگر داخلی تلگرام باز **نکنید**\n"
-            "⑤ لینک را در نوار آدرس مرورگر Paste کنید و بزنید Enter\n\n"
-            "**مرحله ۲ — ورود به گوگل:**\n"
-            "⑥ با حساب گوگل خود وارد شوید\n"
-            "⑦ روی **Allow** یا **ادامه** کلیک کنید\n\n"
-            "**مرحله ۳ — دریافت کد:**\n"
-            "⑧ مرورگر شما یک صفحه خطا نشان می‌دهد — این **کاملاً طبیعی** است\n"
-            "⑨ به نوار آدرس مرورگر نگاه کنید\n"
-            "   آدرسی مثل این می‌بینید:\n"
-            "   `http://localhost/?code=4/0Ae...`\n"
-            "⑩ کل این آدرس را از نوار آدرس **انتخاب و کپی** کنید\n"
-            "⑪ آدرس کپی‌شده را برای ربات **بفرستید**\n\n"
-            "✅ ربات به‌طور خودکار کد را تشخیص داده و متصل می‌شود.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 اتصال حساب گوگل", callback_data="gd_connect")]]))
+            T(user_id,"gd_guide_text"),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"gd_btn_connect"), callback_data="gd_connect")]]))
 
     elif action == "gd_connect":
+        if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+            await safe_edit(cq.message, T(user_id,"gd_oauth_not_configured")); return
         auth_url = get_drive_auth_url()
         user_states[f"gd_{chat_id}"] = {"type": "awaiting_drive_code"}
         await client.send_message(chat_id,
-            f"🔗 **اتصال به گوگل درایو:**\n\n"
-            f"**مرحله ۱:** روی لینک زیر کلیک کنید:\n{auth_url}\n\n"
-            f"**مرحله ۲:** با حساب گوگل وارد شوید و دسترسی را تأیید کنید\n\n"
-            f"**مرحله ۳:** بعد از تأیید، مرورگر یک صفحه خطا نشان می‌دهد — این **طبیعی** است\n\n"
-            f"**مرحله ۴:** آدرس کامل صفحه (URL) را از نوار آدرس مرورگر کپی کرده و **همین‌جا** بفرستید\n\n"
-            f"⬇️ مثال: `http://localhost/?code=4/xxxxx`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو اتصال", callback_data="gd_cancel_connect")]]))
+            T(user_id,"gd_connect_url",url=auth_url),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"gd_btn_cancel_connect"), callback_data="gd_cancel")]]))
 
     elif action == "gd_space":
         db = load_drive_db(); uid = str(user_id)
-        if uid not in db: await safe_edit(cq.message, "❌ حساب گوگل متصل نشده."); return
-        await safe_edit(cq.message, "⏳ در حال بررسی فضا...")
+        if uid not in db: await safe_edit(cq.message, T(user_id,"gd_no_account")); return
+        await safe_edit(cq.message, T(user_id,"gd_checking_space"))
         token = await get_valid_drive_token(user_id)
-        if not token: await safe_edit(cq.message, "❌ خطا در احراز هویت. دوباره متصل شوید."); return
+        if not token: await safe_edit(cq.message, T(user_id,"gd_auth_error")); return
         used, total, remaining = await drive_get_space(token)
         pct = (used/total*100) if total > 0 else 0
         bar = "■"*int(pct/10) + "□"*(10-int(pct/10))
         _, quota_left = check_drive_quota(user_id)
         await safe_edit(cq.message,
-            f"📊 **فضای گوگل درایو:**\n\n"
-            f"[{bar}] {pct:.1f}%\n"
-            f"📦 مصرف شده: {used/(1024**3):.2f} GB\n"
-            f"✅ باقیمانده: {remaining/(1024**3):.2f} GB از {total/(1024**3):.0f} GB\n\n"
-            f"🔢 سهمیه آپلود امروز: **{quota_left} از {DRIVE_DAILY_LIMIT}** باقی مانده",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗑 پاکسازی", callback_data="gd_clear")]]) if pct > 80 else None)
+            T(user_id,"gd_space_info", bar=bar, pct=pct,
+              used=used/(1024**3), free=remaining/(1024**3),
+              total=total/(1024**3), quota=quota_left, limit=DRIVE_DAILY_LIMIT))
 
     elif action == "gd_clear":
         await safe_edit(cq.message, "⚠️ **هشدار!**\nتمام فایل‌های آپلودشده در گوگل درایو حذف می‌شوند. مطمئنید؟",
@@ -833,49 +802,34 @@ async def drive_callback(client, cq):
 
     elif action == "gd_clear_ok":
         db = load_drive_db(); uid = str(user_id)
-        if uid not in db: await safe_edit(cq.message, "❌ حساب متصل نشده."); return
+        if uid not in db: await safe_edit(cq.message, T(user_id,"gd_no_account_short")); return
         token = await get_valid_drive_token(user_id)
-        if not token: await safe_edit(cq.message, "❌ خطا در احراز هویت."); return
+        if not token: await safe_edit(cq.message, T(user_id,"gd_auth_error_short")); return
         folder_id = db[uid].get("folder_id")
-        if not folder_id: await safe_edit(cq.message, "❌ پوشه‌ای یافت نشد."); return
-        await safe_edit(cq.message, "🗑 در حال پاکسازی...")
+        if not folder_id: await safe_edit(cq.message, T(user_id,"gd_no_folder")); return
+        await safe_edit(cq.message, T(user_id,"gd_clearing"))
         try:
             count = await drive_clear_all_files(token, folder_id, cq.message)
-            await safe_edit(cq.message, f"✅ **پاکسازی انجام شد!**\n{count} فایل حذف شد.")
+            await safe_edit(cq.message, T(user_id,"gd_clear_done",count=count))
         except Exception as e:
-            await safe_edit(cq.message, f"⚠️ خطا: `{e}`")
+            await safe_edit(cq.message, T(user_id,"gd_clear_error",e=e))
 
     elif action == "gd_dl_guide":
-        await client.send_message(chat_id,
-            "📥 **راهنمای دانلود فایل از گوگل درایو**\n\n"
-            "━━━━━━━━━━━━━━━━━━━\n"
-            "**روش اول — مرورگر (Chrome / Safari / Firefox):**\n\n"
-            "① لینک **دانلود مستقیم** را کپی کنید\n"
-            "② مرورگر را باز کنید و لینک را Paste کنید\n"
-            "③ صفحه گوگل درایو باز می‌شود\n"
-            "④ اگر گوگل هشدار ویروس داد، روی **Download anyway** کلیک کنید\n"
-            "⑤ فایل دانلود می‌شود\n\n"
-            "━━━━━━━━━━━━━━━━━━━\n"
-            "**اگر روش اول کار نکرد — اپ اندروید:**\n\n"
-            "اپ MITM Drive Downloader را نصب کنید (فایل APK پایین همین پیام ارسال می‌شود)\n\n"
-            "① اپ را باز کنید\n"
-            "② از بالای صفحه روی **Start** بزنید\n"
-            "③ لینک **دانلود مستقیم** را در کادر مربوطه Paste کنید\n"
-            "④ روی **Download** بزنید — فایل دانلود می‌شود")
+        await client.send_message(chat_id, T(user_id,"gd_dl_guide_text"))
         apk_path = os.path.join(INSTALL_DIR, "MITM.Drive.Downloader.v1-android.apk")
         if os.path.exists(apk_path):
             await client.send_document(chat_id, apk_path,
-                caption="📲 **MITM Drive Downloader**\nاگر دانلود از مرورگر کار نکرد از این اپ استفاده کنید")
+                caption=T(user_id,"mitm_caption"))
         user_states.pop(f"gd_{chat_id}", None)
-        await safe_edit(cq.message, "❌ عملیات اتصال لغو شد.")
+        await safe_edit(cq.message, T(user_id,"gd_cancelled"))
 
     elif action == "gd_disconnect":
         db = load_drive_db(); uid = str(user_id)
         if uid in db: del db[uid]; save_drive_db(db)
-        await safe_edit(cq.message, "✅ حساب گوگل قطع شد.")
+        await safe_edit(cq.message, T(user_id,"gd_disconnected"))
 
     elif action == "gd_cancel":
-        await safe_edit(cq.message, "❌ عملیات لغو شد.")
+        await safe_edit(cq.message, T(user_id,"gd_cancelled_short"))
 
 @app.on_message(filters.text, group=1)
 async def handle_drive_code_input(client, message):
@@ -889,12 +843,12 @@ async def handle_drive_code_input(client, message):
         if match:
             code = urllib.parse.unquote(match.group(1))
     del user_states[sk]
-    status_msg = await message.reply("⏳ در حال بررسی کد...")
+    status_msg = await message.reply(T(message.from_user.id,"gd_verifying"))
     try:
         access_token, refresh_token, expiry = await exchange_drive_code(code)
         if not refresh_token:
-            await safe_final_edit(message, status_msg, "❌ کد نامعتبر. دوباره از منوی گوگل درایو امتحان کنید."); return
-        await safe_edit(status_msg, "⏳ در حال ساخت پوشه...")
+            await safe_final_edit(message, status_msg, T(message.from_user.id,"gd_invalid_code")); return
+        await safe_edit(status_msg, T(message.from_user.id,"gd_creating_folder"))
         folder_id = await drive_get_or_create_folder(access_token)
         db = load_drive_db()
         db[str(chat_id)] = {
@@ -908,10 +862,10 @@ async def handle_drive_code_input(client, message):
             "💾 ظرفیت رایگان: ۱۵ گیگابایت\n\n"
             "از این به بعد گزینه **📂 آپلود به گوگل درایو** در منوی پردازش فایل نمایش داده می‌شود.")
     except Exception as e:
-        await safe_final_edit(message, status_msg, f"❌ خطا: `{e}`")
+        await safe_final_edit(message, status_msg, T(message.from_user.id,"gd_code_error",e=e))
 
 
-@app.on_message(filters.text & filters.regex("^☁️ اتصال به گیتهاب$"))
+@app.on_message(filters.text & filters.regex("^(☁️ اتصال به گیتهاب|☁️ Connect GitHub)$"))
 async def github_menu(client, message):
     user_id = message.from_user.id
 
@@ -925,18 +879,16 @@ async def github_menu(client, message):
 
     db = load_github_db(); uid = str(user_id); has_t = uid in db
     username = db[uid]["username"] if has_t else None
-    status = f"✅ متصل به اکانت `{username}`" if has_t else "❌ توکن تنظیم نشده"
+    status = T(user_id, "gh_connected", username=username) if has_t else T(user_id, "gh_not_connected")
     buttons = [
-        [InlineKeyboardButton("📖 راهنمای گام به گام", callback_data="gh_guide")],
-        [InlineKeyboardButton("🔑 تغییر توکن" if has_t else "🔑 وارد کردن توکن", callback_data="gh_set_token")]
+        [InlineKeyboardButton(T(user_id,"gh_btn_guide"), callback_data="gh_guide")],
+        [InlineKeyboardButton(T(user_id,"gh_btn_token_change") if has_t else T(user_id,"gh_btn_token"), callback_data="gh_set_token")]
     ]
     if has_t:
         buttons.append([InlineKeyboardButton("📊 فضای باقیمانده", callback_data="gh_space")])
-        buttons.append([InlineKeyboardButton("🗑 پاکسازی همه فایل‌ها", callback_data="gh_clear")])
+        buttons.append([InlineKeyboardButton(T(user_id,"gh_btn_clear"), callback_data="gh_clear")])
     await message.reply(
-        f"☁️ **مدیریت فضای ابری گیتهاب**\n\nوضعیت: {status}\n\n"
-        f"با اتصال به گیتهاب می‌توانید فایل‌ها را به صورت رایگان در فضای ابری ذخیره کرده و لینک مستقیم دانلود دریافت کنید.\n\n"
-        f"📦 ظرفیت: تا **۱۵ گیگابایت** (۳ ریپازیتوری × ۵ گیگ)",
+        T(user_id,"gh_menu_title",status=status),
         reply_markup=InlineKeyboardMarkup(buttons))
 
 @app.on_callback_query(filters.regex("^gh_"))
@@ -945,80 +897,18 @@ async def github_callback(client, cq):
     chat_id = cq.message.chat.id; user_id = cq.from_user.id; action = cq.data
 
     if action == "gh_guide":
-        await safe_edit(cq.message,
-            "📖 **راهنمای گام به گام دریافت توکن گیتهاب**\n\n"
-            "گیتهاب یک سرویس رایگان آنلاین است که به شما فضای ذخیره‌سازی ابری می‌دهد.\n\n"
-            "**مرحله ۱ — ساخت حساب کاربری:**\n"
-            "① مرورگر خود را باز کنید\n"
-            "② آدرس `github.com` را وارد کنید\n"
-            "③ روی دکمه **Sign up** (ثبت‌نام) کلیک کنید\n"
-            "④ ایمیل، رمز عبور و یک نام کاربری وارد کنید\n"
-            "⑤ مراحل تأیید ایمیل را کامل کنید\n\n"
-            "اگر قبلاً حساب دارید مستقیم وارد شوید.\n\n"
-            "**مرحله ۲ — ورود به تنظیمات:**\n"
-            "① وارد حساب خود شوید\n"
-            "② روی **تصویر پروفایل** خود (گوشه بالا-راست صفحه) کلیک کنید\n"
-            "③ از منوی باز شده گزینه **Settings** را انتخاب کنید",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("ادامه ←", callback_data="gh_guide2")]]))
-
-    elif action == "gh_guide2":
-        await safe_edit(cq.message,
-            "📖 **راهنما — مرحله ۳ و ۴**\n\n"
-            "**مرحله ۳ — رفتن به بخش توسعه‌دهندگان:**\n"
-            "① در صفحه Settings، به پایین اسکرول کنید\n"
-            "② در منوی سمت چپ، گزینه **Developer settings** را پیدا کنید (آخرین گزینه)\n"
-            "③ روی آن کلیک کنید\n\n"
-            "**مرحله ۴ — ساخت توکن:**\n"
-            "① روی **Personal access tokens** کلیک کنید\n"
-            "② گزینه **Fine-grained tokens** را انتخاب کنید\n"
-            "③ روی دکمه سبز **Generate new token** کلیک کنید",
+        await safe_edit(cq.message, T(user_id,"gh_guide_text"),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("→ قبلی", callback_data="gh_guide"),
-                 InlineKeyboardButton("ادامه ←", callback_data="gh_guide3")]]))
-
-    elif action == "gh_guide3":
-        await safe_edit(cq.message,
-            "📖 **راهنما — مرحله ۵ (تنظیمات توکن)**\n\n"
-            "در صفحه ساخت توکن موارد زیر را تنظیم کنید:\n\n"
-            "**① Token name (نام توکن):**\n"
-            "هر نام دلخواهی وارد کنید\nمثلاً: `telegram-bot`\n\n"
-            "**② Expiration (تاریخ انقضا):**\n"
-            "گزینه **No expiration** را انتخاب کنید\n(بدون انقضا)\n\n"
-            "**③ Repository access (دسترسی به ریپازیتوری):**\n"
-            "گزینه **All repositories** را انتخاب کنید\n\n"
-            "سپس به مرحله بعد بروید 👇",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("→ قبلی", callback_data="gh_guide2"),
-                 InlineKeyboardButton("ادامه ←", callback_data="gh_guide4")]]))
-
-    elif action == "gh_guide4":
-        await safe_edit(cq.message,
-            "📖 **راهنما — مرحله ۶ (مجوزها)**\n\n"
-            "① در همان صفحه به بخش **Permissions** اسکرول کنید\n"
-            "② روی **Repository permissions** کلیک کنید تا باز شود\n"
-            "③ اگر همه مجوزها را نمی‌بینید، دکمه **Add a permission** یا **Show more** را بزنید\n\n"
-            "④ این **۴ مجوز** را یکی یکی پیدا کرده و برای هر کدام **Read and write** انتخاب کنید:\n\n"
-            "✅ **Actions** ← Read and write\n"
-            "✅ **Administration** ← Read and write\n"
-            "✅ **Contents** ← Read and write\n"
-            "✅ **Workflows** ← Read and write\n\n"
-            "**مرحله ۷ — دریافت توکن:**\n"
-            "① به بالای صفحه برگردید\n"
-            "② روی دکمه سبز **Generate token** کلیک کنید\n"
-            "③ توکن نمایش داده می‌شود — **همین الان کپی کنید!**\n\n"
-            "⚠️ توکن فقط یک‌بار نمایش داده می‌شود.\nبعد از بستن صفحه دیگر قابل مشاهده نیست!",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("→ قبلی", callback_data="gh_guide3"),
-                 InlineKeyboardButton("🔑 وارد کردن توکن", callback_data="gh_set_token")]]))
+                [InlineKeyboardButton(T(user_id,"gh_btn_token"), callback_data="gh_set_token")]]))
 
     elif action == "gh_set_token":
         user_states[f"gh_{chat_id}"] = {"type": "awaiting_gh_token"}
-        await client.send_message(chat_id, "🔑 لطفاً توکن GitHub خود را ارسال کنید\n(با `ghp_` یا `github_pat_` شروع میشه):",
+        await client.send_message(chat_id, T(user_id,"gh_token_prompt"),
                                   reply_markup=ForceReply(selective=True))
 
     elif action == "gh_space":
         db = load_github_db(); uid = str(user_id)
-        if uid not in db: await safe_edit(cq.message, "❌ توکن تنظیم نشده."); return
+        if uid not in db: await safe_edit(cq.message, T(user_id,"gh_no_token_menu")); return
         d = db[uid]
         repos = d.get("repos", [])
         repo_sizes = d.get("repo_sizes", {})
@@ -1035,35 +925,31 @@ async def github_callback(client, cq):
         bar = "■"*int(pct/10) + "□"*(10-int(pct/10))
         _, remaining_quota = check_gh_quota(user_id)
         await safe_edit(cq.message,
-            f"📊 **فضای ابری گیتهاب:**\n\n"
-            f"👤 اکانت: `{d['username']}`\n\n"
-            f"**وضعیت هر ریپازیتوری:**\n{repo_lines}\n"
-            f"**جمع کل:**\n[{bar}] {pct:.1f}%\n"
-            f"📦 مصرف شده: {total_used/(1024**3):.2f} GB\n"
-            f"✅ باقیمانده: {(total_cap-total_used)/(1024**3):.2f} GB از {total_cap/(1024**3):.0f} GB\n\n"
-            f"🔢 سهمیه آپلود امروز: **{remaining_quota} از {GITHUB_DAILY_LIMIT}** باقی مانده",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗑 پاکسازی", callback_data="gh_clear")]]) if pct > 80 else None)
+            T(user_id,"gh_space_info",
+              username=d["username"], repos_info=repo_lines, bar=bar, pct=pct,
+              used=total_used/(1024**3), free=(total_cap-total_used)/(1024**3),
+              total=total_cap/(1024**3), quota=remaining_quota, limit=GITHUB_DAILY_LIMIT))
 
     elif action == "gh_clear":
-        await safe_edit(cq.message, "⚠️ **هشدار!**\nتمام فایل‌های آپلود شده در گیتهاب حذف می‌شوند. مطمئنید؟",
+        await safe_edit(cq.message, T(user_id,"gh_warn_clear"),
                         reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("✅ بله، پاکسازی کن", callback_data="gh_clear_ok")],
-                            [InlineKeyboardButton("❌ انصراف", callback_data="gh_cancel")]]))
+                            [InlineKeyboardButton(T(user_id,"gh_btn_confirm_clear"), callback_data="gh_clear_ok")],
+                            [InlineKeyboardButton(T(user_id,"gh_btn_cancel"), callback_data="gh_cancel")]]))
 
     elif action == "gh_clear_ok":
         db = load_github_db(); uid = str(user_id)
-        if uid not in db: await safe_edit(cq.message, "❌ توکن تنظیم نشده."); return
+        if uid not in db: await safe_edit(cq.message, T(user_id,"gh_no_token_menu")); return
         d = db[uid]
-        await safe_edit(cq.message, "🗑 در حال پاکسازی...")
+        await safe_edit(cq.message, T(user_id,"gh_clearing"))
         try:
             await gh_clear_all(d["token"], d["username"], d.get("repos",[]), cq.message)
             reset_repo_sizes(d["username"], d.get("repos", []))
-            await safe_edit(cq.message, "✅ **فضای گیتهاب پاکسازی شد!**\nاکنون می‌توانید فایل‌های جدید آپلود کنید.")
+            await safe_edit(cq.message, T(user_id,"gh_clear_done"))
         except Exception as e:
-            await safe_edit(cq.message, f"⚠️ پاکسازی با خطا مواجه شد:\n`{e}`")
+            await safe_edit(cq.message, T(user_id,"gh_clear_error",e=e))
 
     elif action == "gh_cancel":
-        await safe_edit(cq.message, "❌ عملیات لغو شد.")
+        await safe_edit(cq.message, T(user_id,"gh_cancelled"))
 
 @app.on_message(filters.text)
 async def handle_github_token_input(client, message):
@@ -1073,34 +959,30 @@ async def handle_github_token_input(client, message):
         message.continue_propagation(); return
     token = message.text.strip()
     del user_states[sk]
-    status_msg = await message.reply("⏳ در حال بررسی توکن...")
+    status_msg = await message.reply(T(message.from_user.id,"gh_verifying"))
     username, err = await gh_validate_token(token)
     if err:
-        await safe_final_edit(message, status_msg, f"❌ {err}\nلطفاً دوباره از منوی گیتهاب امتحان کنید."); return
-    await safe_edit(status_msg, f"✅ توکن معتبر! اکانت: `{username}`\n⏳ در حال ایجاد ۳ ریپازیتوری...")
+        await safe_final_edit(message, status_msg, T(message.from_user.id,"gh_invalid_token",err=err)); return
+    await safe_edit(status_msg, T(message.from_user.id,"gh_creating_repos",username=username))
     repos = []
     for i in range(1, GITHUB_MAX_REPOS + 1):
         repo_name = f"bot-cloud-{i}"
-        await safe_edit(status_msg, f"✅ توکن معتبر! اکانت: `{username}`\n⏳ ایجاد ریپازیتوری {i} از {GITHUB_MAX_REPOS}...")
+        await safe_edit(status_msg, T(message.from_user.id,"gh_creating_repo_i",username=username,i=i,total=GITHUB_MAX_REPOS))
         ok, _ = await gh_create_repo(token, repo_name)
         if ok:
             repos.append(repo_name)
     if not repos:
-        await safe_final_edit(message, status_msg, "❌ خطا در ایجاد ریپازیتوری.\nبررسی کنید permissions توکن شامل ۴ مجوز لازم باشد."); return
+        await safe_final_edit(message, status_msg, T(message.from_user.id,"gh_repo_error")); return
     db = load_github_db()
     db[str(chat_id)] = {"token": token, "username": username, "repos": repos}
     save_github_db(db)
     await safe_final_edit(message, status_msg,
-        f"✅ **اتصال به گیتهاب برقرار شد!**\n\n"
-        f"👤 اکانت: `{username}`\n"
-        f"📁 ریپازیتوری‌های ساخته شده: {len(repos)} عدد\n"
-        f"💾 ظرفیت کل: تا {len(repos)*5} گیگابایت\n\n"
-        f"از این به بعد گزینه **☁️ آپلود به گیتهاب** در منوی پردازش فایل نمایش داده می‌شود.")
+        T(chat_id,"gh_connect_success",username=username,repos=len(repos),cap=len(repos)*5))
 
 @app.on_callback_query(filters.regex("^cancel_task$"))
 async def cancel_callback(client, cq):
     cancel_flags[cq.message.chat.id] = True
-    await cq.answer("⚠️ درخواست لغو ثبت شد.", show_alert=True)
+    await cq.answer("⚠️ درخواست لغو ثبت شد." if get_user_lang(cq.from_user.id)=="fa" else "⚠️ Cancellation requested.", show_alert=True)
 
 # ================= بخش مدیریت ادمین =================
 USERS_PER_PAGE = 5
@@ -1126,9 +1008,9 @@ async def send_user_list_page(chat_id, active_users, page, client, send_new=Fals
     buttons = []
     row = []
     if page > 0:
-        row.append(InlineKeyboardButton("→ قبلی", callback_data=f"ulist_{page-1}"))
+        row.append(InlineKeyboardButton(T(ADMIN_ID,"admin_btn_prev"), callback_data=f"ulist_{page-1}"))
     if page < total_pages - 1:
-        row.append(InlineKeyboardButton("بعدی ←", callback_data=f"ulist_{page+1}"))
+        row.append(InlineKeyboardButton(T(ADMIN_ID,"admin_btn_next"), callback_data=f"ulist_{page+1}"))
     if row:
         buttons.append(row)
     kb = InlineKeyboardMarkup(buttons) if buttons else None
@@ -1155,7 +1037,7 @@ async def user_list_page_callback(client, cq):
                               send_new=False, message_id=cq.message.id)
 
 
-@app.on_message(filters.text & filters.regex("^(➕ افزودن کاربر|➕ افزودن کاربر یوتوب|📋 لیست کاربران|➖ حذف کاربر|🧹 پاکسازی ربات)$") & filters.user(ADMIN_ID))
+@app.on_message(filters.text & filters.regex("^(➕ افزودن کاربر|➕ Add User|➕ افزودن کاربر یوتوب|➕ Add YouTube User|📋 لیست کاربران|📋 User List|➖ حذف کاربر|➖ Remove User|🧹 پاکسازی ربات|🧹 Clean Bot)$") & filters.user(ADMIN_ID))
 async def admin_menu_handler(client, message):
     t = message.text; chat_id = message.chat.id
     if t == "📋 لیست کاربران":
@@ -1169,17 +1051,17 @@ async def admin_menu_handler(client, message):
                 if rd > 0 or ytd > 0:
                     active.append({"uid": uid, "uname": d.get("username","نامشخص"), "rd": rd, "ytd": ytd})
         if not active:
-            await message.reply("هیچ کاربر فعالی وجود ندارد."); return
+            await message.reply(T(ADMIN_ID,"admin_no_users")); return
         await send_user_list_page(message.chat.id, active, page=0, client=client, send_new=True)
     elif t == "➕ افزودن کاربر":
         user_states[chat_id] = {"admin_action": "wait_for_user_id"}
-        await message.reply("آیدی عددی کاربر:", reply_markup=ReplyKeyboardMarkup([["انصراف"]], resize_keyboard=True))
+        await message.reply(T(user_id,"admin_ask_user_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
     elif t == "➕ افزودن کاربر یوتوب":
         user_states[chat_id] = {"admin_action": "wait_for_yt_user_id"}
-        await message.reply("آیدی عددی کاربر یوتوب:", reply_markup=ReplyKeyboardMarkup([["انصراف"]], resize_keyboard=True))
+        await message.reply(T(user_id,"admin_ask_yt_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
     elif t == "➖ حذف کاربر":
         user_states[chat_id] = {"admin_action": "wait_for_delete_id"}
-        await message.reply("آیدی عددی کاربر:", reply_markup=ReplyKeyboardMarkup([["انصراف"]], resize_keyboard=True))
+        await message.reply(T(user_id,"admin_ask_user_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
     elif t == "🧹 پاکسازی ربات":
         for f in os.listdir(TEMP_DIR):
             fp = os.path.join(TEMP_DIR, f)
@@ -1187,45 +1069,45 @@ async def admin_menu_handler(client, message):
                 if os.path.isfile(fp): os.unlink(fp)
                 elif os.path.isdir(fp): shutil.rmtree(fp)
             except: pass
-        await message.reply("✅ پاکسازی شد.", reply_markup=get_reply_menu(ADMIN_ID))
+        await message.reply(T(ADMIN_ID,"admin_clean_done"), reply_markup=get_reply_menu(ADMIN_ID))
 
 @app.on_message(filters.text & filters.user(ADMIN_ID))
 async def admin_states_handler(client, message):
     chat_id = message.chat.id; t = message.text
     state = user_states.get(chat_id, {}).get("admin_action")
-    if t == "انصراف" and state:
-        user_states.pop(chat_id, None); await message.reply("لغو شد.", reply_markup=get_reply_menu(ADMIN_ID)); return
+    if (t == "انصراف" or t == "Cancel") and state:
+        user_states.pop(chat_id, None); await message.reply(T(ADMIN_ID,"admin_cancelled"), reply_markup=get_reply_menu(ADMIN_ID)); return
     if state == "wait_for_user_id":
         user_states[chat_id]["target_user_id"] = t; user_states[chat_id]["admin_action"] = "wait_for_days"
-        await message.reply("تعداد روزهای اشتراک:")
+        await message.reply(T(user_id,"admin_ask_days"))
     elif state == "wait_for_days":
         user_states[chat_id]["target_days"] = int(t); user_states[chat_id]["admin_action"] = "wait_for_username"
-        await message.reply("آیدی نوشتاری:")
+        await message.reply(T(user_id,"admin_ask_username"))
     elif state == "wait_for_username":
         tid = user_states[chat_id]["target_user_id"]; days = user_states[chat_id]["target_days"]
         exp = time.time()+days*86400; users = load_users()
         if tid not in users: users[tid] = {"expire":exp,"username":t,"yt_expire":0}
         else: users[tid]["expire"]=exp; users[tid]["username"]=t
         save_users(users); user_states.pop(chat_id, None)
-        await message.reply(f"✅ اضافه شد. اعتبار: {days} روز.", reply_markup=get_reply_menu(ADMIN_ID))
+        await message.reply(T(user_id,"admin_added",days=days), reply_markup=get_reply_menu(ADMIN_ID))
     elif state == "wait_for_yt_user_id":
         user_states[chat_id]["target_user_id"] = t; user_states[chat_id]["admin_action"] = "wait_for_yt_days"
-        await message.reply("تعداد روزهای اشتراک یوتوب:")
+        await message.reply(T(user_id,"admin_ask_yt_days"))
     elif state == "wait_for_yt_days":
         user_states[chat_id]["target_days"] = int(t); user_states[chat_id]["admin_action"] = "wait_for_yt_username"
-        await message.reply("آیدی نوشتاری:")
+        await message.reply(T(user_id,"admin_ask_username"))
     elif state == "wait_for_yt_username":
         tid = user_states[chat_id]["target_user_id"]; days = user_states[chat_id]["target_days"]
         exp = time.time()+days*86400; users = load_users()
         if tid not in users: users[tid] = {"expire":0,"username":t,"yt_expire":exp}
         else: users[tid]["yt_expire"]=exp; users[tid]["username"]=t
         save_users(users); user_states.pop(chat_id, None)
-        await message.reply(f"✅ دسترسی یوتوب. اعتبار: {days} روز.", reply_markup=get_reply_menu(ADMIN_ID))
+        await message.reply(T(user_id,"admin_yt_added",days=days), reply_markup=get_reply_menu(ADMIN_ID))
     elif state == "wait_for_delete_id":
         tid = t.strip(); users = load_users()
         if tid in users:
             del users[tid]; save_users(users); user_states.pop(chat_id, None)
-            await message.reply("✅ دسترسی لغو شد.", reply_markup=get_reply_menu(ADMIN_ID))
+            await message.reply(T(user_id,"admin_deleted"), reply_markup=get_reply_menu(ADMIN_ID))
         else:
             user_states.pop(chat_id, None); await message.reply("❌ یافت نشد.", reply_markup=get_reply_menu(ADMIN_ID))
     else: message.continue_propagation()
@@ -1255,11 +1137,11 @@ async def handle_text_links(client, message):
 
     if is_youtube:
         if not has_yt_access(user_id):
-            await message.reply("⛔️ شما اشتراک ویژه یوتوب ندارید."); return
+            await message.reply(T(user_id,"no_yt_sub")); return
         allowed, remaining = check_yt_quota(user_id)
         if not allowed:
-            await message.reply("⛔️ **سهمیه روزانه تمام شده!**\nبه سقف ۱۰ ویدیو در ۲۴ ساعت رسیده‌اید."); return
-        bot_msg = await message.reply("⏳ در حال استخراج اطلاعات...", quote=True)
+            await message.reply(T(user_id,"yt_quota_exceeded")); return
+        bot_msg = await message.reply(T(user_id,"yt_extracting"), quote=True)
         try:
             async def extract_info():
                 # فقط فیلدهای مورد نیاز — بسیار سبک‌تر از --dump-json
@@ -1297,19 +1179,19 @@ async def handle_text_links(client, message):
                 [InlineKeyboardButton(f"🎵 فقط صدا ({saudio})",callback_data="ytqual_mp3")]
             ])
             await safe_final_edit(message, bot_msg,
-                f"🎬 **{title}**\n\n🔢 سهمیه باقیمانده: **{remaining} ویدیو**\n\nکیفیت را انتخاب کنید:", kb)
+                T(user_id,"yt_quality_prompt",title=title,remaining=remaining), kb)
         except Exception as e:
             await safe_final_edit(message, bot_msg, f"❌ خطا: `{e}`")
         return
 
-    bot_msg = await message.reply("⏳ در حال استخراج لینک...", quote=True)
+    bot_msg = await message.reply(T(user_id,"extracting_link"), quote=True)
     file_name = f"file_{int(time.time())}.dat"; final_url = text; is_html = False
     try:
         async with aiohttp.ClientSession(headers=BROWSER_HEADERS) as s:
             async with s.head(final_url, allow_redirects=True) as r:
                 size = int(r.headers.get('Content-Length',0))
                 if size > 0 and not check_size_limit(size, chat_id):
-                    await safe_final_edit(message, bot_msg, "❌ حجم فایل بیشتر از 2 گیگابایت است."); return
+                    await safe_final_edit(message, bot_msg, T(user_id,"link_too_large")); return
                 if 'text/html' in r.headers.get('Content-Type',''): is_html = True
                 cd = r.headers.get('Content-Disposition','')
                 if cd:
@@ -1320,12 +1202,12 @@ async def handle_text_links(client, message):
                     if en: file_name = en
     except: pass
     if is_html:
-        await safe_final_edit(message, bot_msg, "❌ لینک مستقیم یافت نشد."); return
+        await safe_final_edit(message, bot_msg, T(user_id,"no_direct_link")); return
     if chat_id in user_multi_tasks:
         user_multi_tasks[chat_id]["items"].append({"type":"url","source":final_url,"file_name":file_name})
         await safe_final_edit(message, bot_msg, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
                               InlineKeyboardMarkup([[InlineKeyboardButton("شروع عملیات",callback_data="multi_start")]])); return
-    await safe_final_edit(message, bot_msg, f"نام فایل: `{file_name}`", get_main_keyboard(user_id))
+    await safe_final_edit(message, bot_msg, T(user_id,"file_name_prompt",name=file_name), get_main_keyboard(user_id))
     user_states[f"{chat_id}_{bot_msg.id}"] = {"type":"url","source":final_url,"file_name":file_name}
 
 @app.on_callback_query(filters.regex("^ytqual_"))
@@ -1334,10 +1216,10 @@ async def yt_quality_callback(client, cq):
     chat_id = cq.message.chat.id; user_id = cq.from_user.id
     quality = cq.data.split("_")[1]; state_key = f"{chat_id}_{cq.message.id}"
     if state_key not in user_states or user_states[state_key].get("type") != "youtube_pending":
-        await safe_edit(cq.message, "❌ درخواست منقضی شده است."); return
+        await safe_edit(cq.message, T(user_id,"yt_request_expired")); return
     allowed, _ = check_yt_quota(user_id)
     if not allowed:
-        await safe_edit(cq.message, "⛔️ سهمیه روزانه تمام شده!"); return
+        await safe_edit(cq.message, T(user_id,"yt_quota_exceeded_cb")); return
     user_states[state_key]["type"] = "youtube"; user_states[state_key]["yt_quality"] = quality
     file_name = user_states[state_key]["file_name"]
     if chat_id in user_multi_tasks:
@@ -1345,23 +1227,23 @@ async def yt_quality_callback(client, cq):
         await safe_edit(cq.message, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
                         InlineKeyboardMarkup([[InlineKeyboardButton("شروع عملیات",callback_data="multi_start")]])); return
     label = "صدا" if quality == "mp3" else f"{quality}p"
-    await safe_edit(cq.message, f"فایل یوتوب: `{file_name}`\nکیفیت: **{label}**", get_main_keyboard(user_id))
+    await safe_edit(cq.message, T(user_id,"yt_file_ready",name=file_name,quality=label), get_main_keyboard(user_id))
 
 @app.on_message(filters.document | filters.video | filters.audio | filters.voice)
 async def handle_media(client, message):
     chat_id = message.chat.id; user_id = message.from_user.id
     media = message.document or message.video or message.audio or message.voice
     if not check_size_limit(getattr(media,"file_size",0), chat_id):
-        await message.reply("❌ فایل‌های بیشتر از 2 گیگابایت مجاز نیست."); return
+        await message.reply(T(user_id,"file_too_large")); return
     file_name = getattr(media,"file_name",None) or f"file_{int(time.time())}"
     if file_name.lower().endswith(".torrent"):
         await handle_torrent_download(client, message, message, is_magnet=False); return
-    bot_msg = await message.reply("⏳ در حال پردازش...", quote=True)
+    bot_msg = await message.reply(T(user_id,"processing"), quote=True)
     if chat_id in user_multi_tasks:
         user_multi_tasks[chat_id]["items"].append({"type":"media","source":message,"file_name":file_name})
         await safe_final_edit(message, bot_msg, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
                               InlineKeyboardMarkup([[InlineKeyboardButton("شروع عملیات",callback_data="multi_start")]])); return
-    await safe_final_edit(message, bot_msg, f"فایل دریافت شد: `{file_name}`", get_main_keyboard(user_id))
+    await safe_final_edit(message, bot_msg, T(user_id,"file_received",name=file_name), get_main_keyboard(user_id))
     user_states[f"{chat_id}_{bot_msg.id}"] = {"type":"media","source":message,"file_name":file_name}
 
 # ================= هندلر تورنت =================
@@ -1388,15 +1270,15 @@ async def _execute_torrent(client, message, source, is_magnet, status_msg):
     while not handle.status().has_metadata:
         if cancel_flags.get(chat_id):
             ses.remove_torrent(handle); shutil.rmtree(chat_temp_dir, ignore_errors=True)
-            await safe_edit(status_msg, "🚫 لغو شد."); return
+            await safe_edit(status_msg, T(user_id,"torrent_cancelled")); return
         await asyncio.sleep(1)
     if not check_size_limit(handle.status().total_wanted, chat_id):
         ses.remove_torrent(handle); shutil.rmtree(chat_temp_dir, ignore_errors=True)
-        await safe_edit(status_msg, "❌ حجم تورنت بیشتر از 2 گیگابایت است."); return
+        await safe_edit(status_msg, T(user_id,"torrent_too_large")); return
     while not handle.status().is_seeding:
         if cancel_flags.get(chat_id):
             ses.remove_torrent(handle); shutil.rmtree(chat_temp_dir, ignore_errors=True)
-            await safe_edit(status_msg, "🚫 لغو شد."); return
+            await safe_edit(status_msg, T(user_id,"torrent_cancelled")); return
         s = handle.status(); pct = s.progress*100
         bar = "■"*int(pct/10)+"□"*(10-int(pct/10))
         await safe_edit(status_msg,
@@ -1409,7 +1291,7 @@ async def _execute_torrent(client, message, source, is_magnet, status_msg):
     final_path = os.path.join(chat_temp_dir, items[0])
     state_key = f"{chat_id}_{status_msg.id}"
     user_states[state_key] = {"type":"local_path","source":final_path,"file_name":items[0],"chat_temp_dir":chat_temp_dir}
-    await safe_final_edit(message, status_msg, "✅ آماده پردازش.", get_main_keyboard(user_id))
+    await safe_final_edit(message, status_msg, T(user_id,"torrent_ready"), get_main_keyboard(user_id))
 
 # ================= کال‌بک‌ها =================
 @app.on_callback_query(filters.regex("^size_"))
@@ -1418,17 +1300,17 @@ async def size_callback(client, cq):
     chat_id = cq.message.chat.id; action = cq.data.split("_")[1]
     state_key = f"{chat_id}_{cq.message.id}"
     if state_key not in user_states:
-        await safe_edit(cq.message, "❌ فایل منقضی شده، دوباره ارسال کنید."); return
+        await safe_edit(cq.message, T(user_id,"file_expired")); return
     user_states[state_key]["action"] = action
     if action == "raw": await execute_with_queue(client, chat_id, state_key)
     elif action == "github": await execute_with_queue(client, chat_id, state_key)
     elif action == "gdrive": await execute_with_queue(client, chat_id, state_key)
     elif action == "multi":
         user_multi_tasks[chat_id] = {"state_key": state_key, "items": [user_states.pop(state_key)]}
-        await safe_edit(cq.message, "فایل اول اضافه شد. بعدی‌ها را فوروارد کنید.",
+        await safe_edit(cq.message, T(user_id,"first_file_added"),
                         InlineKeyboardMarkup([[InlineKeyboardButton("شروع آرشیو",callback_data="multi_start")]]))
     else:
-        await safe_edit(cq.message, "رمز گذاشته شود؟", InlineKeyboardMarkup([
+        await safe_edit(cq.message, T(user_id,"ask_password"), InlineKeyboardMarkup([
             [InlineKeyboardButton("بدون رمز",callback_data=f"pass_none_{cq.message.id}")],
             [InlineKeyboardButton("تعیین رمز عبور",callback_data=f"pass_set_{cq.message.id}")]
         ]))
@@ -1457,7 +1339,7 @@ async def password_callback(client, cq):
         user_states[state_key]["password"] = None; await execute_with_queue(client, chat_id, state_key)
     else:
         user_states[state_key]["awaiting_password"] = True
-        await client.send_message(chat_id, "رمز را بفرستید:", reply_markup=ForceReply(selective=True))
+        await client.send_message(chat_id, T(user_id,"set_password"), reply_markup=ForceReply(selective=True))
 
 @app.on_message(filters.text & filters.reply)
 async def get_password_input(client, message):
@@ -1473,7 +1355,7 @@ async def execute_with_queue(client, chat_id, state_key):
     if not data: return
     sem = get_user_sem(chat_id)
     if sem.locked() and chat_id != ADMIN_ID:
-        await client.send_message(chat_id, "⏳ درخواست در صف قرار گرفت...")
+        await client.send_message(chat_id, T(user_id,"queued"))
     if chat_id == ADMIN_ID: asyncio.create_task(core_processing(client, chat_id, data))
     else:
         async with sem: await core_processing(client, chat_id, data)
@@ -1492,7 +1374,7 @@ async def _do_github_upload(client, chat_id, data, target_path, chat_base, token
 
     # اگه target_path دایرکتوری بود (multi) اول zip بساز
     if os.path.isdir(target_path):
-        await safe_edit(status_msg, "📦 در حال آماده‌سازی فایل...")
+        await safe_edit(status_msg, T(chat_id,"preparing_file"))
         zip_path = os.path.join(chat_base, "github_upload.zip")
         proc = await asyncio.create_subprocess_exec(
             "zip", "-r", zip_path, "-j", target_path,
@@ -1511,10 +1393,7 @@ async def _do_github_upload(client, chat_id, data, target_path, chat_base, token
 
     repo_name = gh_find_repo(token, username, repos, file_size)
     if not repo_name:
-        await safe_edit(status_msg,
-            "❌ **فضای گیتهاب پر شده!**\n\n"
-            "از منوی ☁️ اتصال به گیتهاب، گزینه پاکسازی را بزنید.",
-            reply_markup=None)
+        await safe_edit(status_msg, T(chat_id,"gh_full"))
         return
 
     links, n_parts = await gh_upload_file(token, username, repo_name, upload_path, status_msg, chat_id)
@@ -1523,31 +1402,21 @@ async def _do_github_upload(client, chat_id, data, target_path, chat_base, token
     if upload_path != target_path and os.path.exists(upload_path):
         os.unlink(upload_path)
 
-    quota_line = "" if chat_id == ADMIN_ID else f"🔢 سهمیه باقیمانده امروز: **{remaining_gh - 1} آپلود**\n"
+    quota_line = "" if chat_id == ADMIN_ID else T(chat_id,"gh_quota_line",remaining=remaining_gh-1)
 
-    await safe_edit(status_msg, "✅ آپلود کامل شد!")
+    await safe_edit(status_msg, T(chat_id,"gh_upload_done"))
 
     # پیام اصلی
-    header = (
-        f"✅ **آپلود به گیتهاب موفق بود!**\n\n"
-        f"📁 ریپازیتوری: `{repo_name}`\n"
-        f"🔢 تعداد پارت‌ها: {n_parts}\n"
-        f"{quota_line}"
-    )
+    header = T(chat_id,"gh_success_header",repo=repo_name,parts=n_parts,quota=quota_line)
     if n_parts > 1:
-        header += (
-            f"\n📥 **نحوه استفاده:**\n"
-            f"۱. تمام پارت‌ها را دانلود کنید\n"
-            f"۲. همه را در یک پوشه قرار دهید\n"
-            f"۳. پارت اول را با 7-Zip باز کنید\n"
-        )
+        header += T(chat_id,"gh_multipart_note")
     await client.send_message(chat_id, header)
 
     # ارسال لینک‌ها در پیام‌های جداگانه (محدودیت ۴۰۹۶ کاراکتر تلگرام)
     TG_LIMIT = 4000
-    current_msg = "🔗 **لینک‌های دانلود:**\n\n"
+    current_msg = T(chat_id,"gh_links_header")
     for idx, link in enumerate(links, 1):
-        line = f"📎 پارت {idx}:\n`{link}`\n\n"
+        line = T(chat_id,"gh_part_link",i=idx,url=link)
         if len(current_msg) + len(line) > TG_LIMIT:
             await client.send_message(chat_id, current_msg.strip())
             current_msg = line
@@ -1561,7 +1430,7 @@ async def _do_github_upload(client, chat_id, data, target_path, chat_base, token
     with open(txt_path, 'w') as f:
         f.write("\n".join(links))
     await client.send_document(chat_id, txt_path,
-        caption="📄 تمام لینک‌ها — برای وارد کردن به دانلود منیجر (ADM و...)")
+        caption=T(chat_id,"gh_links_file_cap"))
     os.unlink(txt_path)
 
     record_gh_upload(chat_id)
@@ -1571,7 +1440,7 @@ async def _do_github_upload(client, chat_id, data, target_path, chat_base, token
 async def _do_drive_upload(client, chat_id, data, target_path, chat_base, token, folder_id, remaining_quota, status_msg):
     upload_path = target_path
     if os.path.isdir(target_path):
-        await safe_edit(status_msg, "📦 در حال آماده‌سازی فایل...")
+        await safe_edit(status_msg, T(chat_id,"preparing_file"))
         zip_path = os.path.join(chat_base, "drive_upload.zip")
         proc = await asyncio.create_subprocess_exec("zip", "-r", zip_path, "-j", target_path,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -1579,7 +1448,7 @@ async def _do_drive_upload(client, chat_id, data, target_path, chat_base, token,
         upload_path = zip_path
     file_size = os.path.getsize(upload_path)
     if file_size > MAX_SIZE_LIMIT and chat_id != ADMIN_ID:
-        await safe_edit(status_msg, f"❌ حجم فایل بیشتر از ۲ گیگابایت است ({file_size/(1024**3):.2f} GB)"); return
+        await safe_edit(status_msg, T(chat_id,"gd_size_limit",size=file_size/(1024**3))); return
     file_name = os.path.basename(upload_path)
     try:
         file_id, view_url, download_url = await drive_upload_file_stream(
@@ -1588,16 +1457,9 @@ async def _do_drive_upload(client, chat_id, data, target_path, chat_base, token,
         if upload_path != target_path and os.path.exists(upload_path):
             os.unlink(upload_path)
     if cancel_flags.get(chat_id): raise ValueError("CANCELLED")
-    quota_line = "" if chat_id == ADMIN_ID else f"🔢 سهمیه باقیمانده امروز: **{remaining_quota - 1} آپلود**\n"
-    result_msg = (
-        f"✅ **آپلود به گوگل درایو موفق بود!**\n\n"
-        f"📄 نام فایل: `{file_name}`\n"
-        f"{quota_line}\n"
-        f"🔗 **مشاهده فایل:**\n`{view_url}`\n\n"
-        f"⬇️ **دانلود مستقیم:**\n`{download_url}`\n\n"
-        f"⚠️ برای فایل‌های بزرگ ممکن است گوگل نیاز به تأیید داشته باشد."
-    )
-    await safe_edit(status_msg, "✅ آپلود کامل شد!")
+    quota_line = "" if chat_id == ADMIN_ID else T(chat_id,"gd_quota_line",remaining=remaining_quota-1)
+    result_msg = T(chat_id,"gd_success",name=file_name,quota=quota_line,view=view_url,dl=download_url)
+    await safe_edit(status_msg, T(chat_id,"gd_upload_done"))
     await client.send_message(chat_id, result_msg)
     record_drive_upload(chat_id)
 
@@ -1607,7 +1469,7 @@ async def core_processing(client, chat_id, data):
     chat_base = os.path.join(TEMP_DIR, f"{chat_id}_{int(time.time())}")
     in_dir = os.path.join(chat_base,"in"); out_dir = os.path.join(chat_base,"out")
     os.makedirs(in_dir, exist_ok=True); os.makedirs(out_dir, exist_ok=True)
-    status_msg = await client.send_message(chat_id, "در حال شروع پردازش...")
+    status_msg = await client.send_message(chat_id, T(chat_id,"processing_start"))
     cancel_flags[chat_id] = False; uploaded_ok = False
 
     try:
@@ -1615,22 +1477,19 @@ async def core_processing(client, chat_id, data):
         if action == "gdrive":
             db = load_drive_db(); uid = str(chat_id)
             if uid not in db:
-                await safe_edit(status_msg, "❌ حساب گوگل متصل نشده.\nاز منوی 📂 اتصال به گوگل درایو متصل شوید."); return
+                await safe_edit(status_msg, T(chat_id,"gd_no_account_core")); return
             allowed_d, remaining_d = check_drive_quota(chat_id)
             if not allowed_d:
                 await safe_edit(status_msg,
-                    "⛔️ **سهمیه روزانه آپلود به گوگل درایو تمام شده!**\n"
-                    f"هر کاربر روزانه {DRIVE_DAILY_LIMIT} آپلود مجاز است."); return
+                    T(chat_id,"gd_quota_core",limit=DRIVE_DAILY_LIMIT)); return
         elif action == "github":
             db = load_github_db(); uid = str(chat_id)
             if uid not in db:
-                await safe_edit(status_msg, "❌ توکن گیتهاب تنظیم نشده.\nاز منوی ☁️ اتصال به گیتهاب توکن وارد کنید."); return
+                await safe_edit(status_msg, T(chat_id,"gh_no_token_core")); return
             allowed_gh, remaining_gh = check_gh_quota(chat_id)
             if not allowed_gh:
                 await safe_edit(status_msg,
-                    "⛔️ **سهمیه روزانه آپلود به گیتهاب تمام شده!**\n"
-                    f"هر کاربر روزانه {GITHUB_DAILY_LIMIT} آپلود مجاز است.\n"
-                    "سهمیه به صورت rolling در ۲۴ ساعت تجدید می‌شود."); return
+                    T(chat_id,"gh_quota_core",limit=GITHUB_DAILY_LIMIT)); return
 
         target_path = ""
         if data["type"] == "local_path":
@@ -1642,7 +1501,7 @@ async def core_processing(client, chat_id, data):
                     await client.download_media(item["source"], file_name=p, progress=progress_bar,
                                                 progress_args=(status_msg,time.time(),f"دریافت فایل {i}",True))
                 elif item["type"] == "youtube":
-                    await safe_edit(status_msg, f"دانلود از یوتوب (آیتم {i})...", reply_markup=get_cancel_keyboard())
+                    await safe_edit(status_msg, T(chat_id,"yt_item_download",i=i), reply_markup=get_cancel_keyboard(chat_id))
                     qual = item.get("yt_quality","720")
                     if qual == "mp3":
                         cmd = ["yt-dlp","-f","bestaudio[ext=m4a]/bestaudio","--js-runtimes","node","--remote-components","ejs:github","-o",p+".m4a"]
@@ -1677,7 +1536,7 @@ async def core_processing(client, chat_id, data):
                                             progress_args=(status_msg,time.time(),"دریافت فایل",True))
             elif is_yt:
                 label = "صدا" if is_audio else ("بهترین کیفیت" if is_best else f"{yt_quality}p")
-                await safe_edit(status_msg, f"در حال دانلود ({label})...", reply_markup=get_cancel_keyboard())
+                await safe_edit(status_msg, T(chat_id,"yt_downloading",quality=label), reply_markup=get_cancel_keyboard())
                 if is_audio:
                     target_path = os.path.join(in_dir, data["file_name"]+".m4a")
                     cmd = ["yt-dlp","-f","bestaudio[ext=m4a]/bestaudio","--js-runtimes","node","--remote-components","ejs:github","-o",target_path]
@@ -1719,16 +1578,14 @@ async def core_processing(client, chat_id, data):
         if action == "github":
             db = load_github_db(); uid = str(chat_id)
             if uid not in db:
-                await safe_edit(status_msg, "❌ توکن گیتهاب تنظیم نشده.\nاز منوی ☁️ اتصال به گیتهاب توکن وارد کنید."); return
+                await safe_edit(status_msg, T(chat_id,"gh_no_token_core")); return
             gh = db[uid]; token = gh["token"]; username = gh["username"]; repos = gh.get("repos",[])
 
             # بررسی سهمیه روزانه
             allowed_gh, remaining_gh = check_gh_quota(chat_id)
             if not allowed_gh:
                 await safe_edit(status_msg,
-                    "⛔️ **سهمیه روزانه آپلود به گیتهاب تمام شده!**\n"
-                    f"هر کاربر روزانه {GITHUB_DAILY_LIMIT} آپلود مجاز است.\n"
-                    "سهمیه به صورت rolling در ۲۴ ساعت تجدید می‌شود."); return
+                    T(chat_id,"gh_quota_core",limit=GITHUB_DAILY_LIMIT)); return
 
             # صف جهانی گیتهاب — حداکثر ۴ آپلود همزمان (ادمین بدون محدودیت)
             if chat_id != ADMIN_ID:
@@ -1752,22 +1609,21 @@ async def core_processing(client, chat_id, data):
         elif action == "gdrive":
             db = load_drive_db(); uid = str(chat_id)
             if uid not in db:
-                await safe_edit(status_msg, "❌ حساب گوگل متصل نشده.\nاز منوی 📂 اتصال به گوگل درایو متصل شوید."); return
+                await safe_edit(status_msg, T(chat_id,"gd_no_account_core")); return
             allowed_d, remaining_d = check_drive_quota(chat_id)
             if not allowed_d:
                 await safe_edit(status_msg,
-                    "⛔️ **سهمیه روزانه آپلود به گوگل درایو تمام شده!**\n"
-                    f"هر کاربر روزانه {DRIVE_DAILY_LIMIT} آپلود مجاز است."); return
+                    T(chat_id,"gd_quota_core",limit=DRIVE_DAILY_LIMIT)); return
             token = await get_valid_drive_token(chat_id)
             if not token:
-                await safe_edit(status_msg, "❌ خطا در احراز هویت گوگل. دوباره از منوی اتصال متصل شوید."); return
+                await safe_edit(status_msg, T(chat_id,"gd_auth_error_core")); return
             folder_id = db[uid].get("folder_id")
             if not folder_id:
                 try:
                     folder_id = await drive_get_or_create_folder(token)
                     db[uid]["folder_id"] = folder_id; save_drive_db(db)
                 except:
-                    await safe_edit(status_msg, "❌ خطا در دسترسی به گوگل درایو."); return
+                    await safe_edit(status_msg, T(chat_id,"gd_folder_error")); return
             if chat_id != ADMIN_ID:
                 if DRIVE_GLOBAL_SEM.locked():
                     await safe_edit(status_msg,
@@ -1786,7 +1642,7 @@ async def core_processing(client, chat_id, data):
 
         elif action == "raw":
             ext = os.path.splitext(target_path)[1].lower()
-            await safe_edit(status_msg, "در حال ارسال...")
+            await safe_edit(status_msg, T(chat_id,"sending"))
             if ext in ('.mp4','.mkv','.mov','.avi','.webm'):
                 await client.send_video(chat_id, target_path, progress=progress_bar,
                                         progress_args=(status_msg,time.time(),"ارسال ویدیو",False))
@@ -1799,7 +1655,7 @@ async def core_processing(client, chat_id, data):
             uploaded_ok = True
         else:
             final_source = target_path
-            await safe_edit(status_msg, "در حال بسته‌بندی RAR...")
+            await safe_edit(status_msg, T(chat_id,"compressing_rar"))
             archive_path = os.path.join(out_dir,"Mega-Leecher.rar")
             cmd = ["rar","a","-ep1","-m0","-rr5p",archive_path]
             if action not in ["full","multi"]: cmd.append(f"-v{action}m")
@@ -1812,7 +1668,7 @@ async def core_processing(client, chat_id, data):
             await proc.communicate()
             parts = sorted([os.path.join(out_dir,f) for f in os.listdir(out_dir)])
             for i, p in enumerate(parts,1):
-                cap = f"پارت {i} از {len(parts)}" if len(parts) > 1 else "فایل نهایی"
+                cap = T(chat_id,"sending_part",i=i,total=len(parts)) if len(parts) > 1 else T(chat_id,"final_file")
                 await client.send_document(chat_id, p, caption=cap, progress=progress_bar,
                                            progress_args=(status_msg,time.time(),f"ارسال {i}/{len(parts)}",False))
             uploaded_ok = True
@@ -1820,15 +1676,15 @@ async def core_processing(client, chat_id, data):
         if uploaded_ok and data["type"] == "youtube":
             record_yt_download(chat_id)
 
-        await safe_final_edit(status_msg, status_msg, "✅ عملیات با موفقیت تمام شد.")
+        await safe_final_edit(status_msg, status_msg, T(chat_id,"done"))
 
     except ValueError as e:
-        msgs = {"CANCELLED":"🚫 عملیات لغو شد.","SIZE_LIMIT":"❌ فایل بیشتر از 2 گیگابایت است.",
-                "YOUTUBE_DOWNLOAD_FAILED":"❌ دانلود از یوتوب با خطا مواجه شد.",
-                "INSTAGRAM_FAILED":"❌ دانلود این پست از اینستاگرام امکان‌پذیر نیست.\nلطفاً لینک دیگری امتحان کنید."}
-        await safe_edit(status_msg, msgs.get(str(e), f"❌ خطا: {e}"))
-    except Exception as e:
-        await client.send_message(chat_id, f"❌ خطا: `{e}`")
+        msgs = {
+            "CANCELLED": T(chat_id,"cancelled"),
+            "SIZE_LIMIT": T(chat_id,"size_limit"),
+            "YOUTUBE_DOWNLOAD_FAILED": T(chat_id,"error_generic",e="YouTube download failed")
+        }
+        await client.send_message(chat_id, T(chat_id,"error_generic",e=e))
     finally:
         shutil.rmtree(chat_base, ignore_errors=True)
         if "chat_temp_dir" in data: shutil.rmtree(data["chat_temp_dir"], ignore_errors=True)
