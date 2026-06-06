@@ -461,10 +461,10 @@ async def gh_delete_file(token, username, repo, path, sha):
                            headers=GH_HEADERS(token), json={"message": f"delete {path}", "sha": sha})
         return r.status_code == 200
 
-async def gh_clear_all(token, username, repos, status_msg):
+async def gh_clear_all(token, username, repos, status_msg, chat_id=0):
     """پاکسازی با git — حذف پوشه uploads از ریپو"""
     for i, repo in enumerate(repos, 1):
-        await safe_edit(status_msg, T(chat_id,"gh_clear_repo",i=i,total=len(repos)))
+        await safe_edit(status_msg, T(chat_id,"gh_clear_repo",i=i+1,total=len(repos)))
         clone_dir = os.path.join(TEMP_DIR, f"gh_clear_{int(time.time())}_{i}")
         try:
             os.makedirs(clone_dir, exist_ok=True)
@@ -795,10 +795,10 @@ async def drive_callback(client, cq):
               total=total/(1024**3), quota=quota_left, limit=DRIVE_DAILY_LIMIT))
 
     elif action == "gd_clear":
-        await safe_edit(cq.message, "⚠️ **هشدار!**\nتمام فایل‌های آپلودشده در گوگل درایو حذف می‌شوند. مطمئنید؟",
+        await safe_edit(cq.message, T(user_id,"gd_warn_clear"),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ بله، پاکسازی کن", callback_data="gd_clear_ok")],
-                [InlineKeyboardButton("❌ انصراف", callback_data="gd_cancel")]]))
+                [InlineKeyboardButton(T(user_id,"gd_btn_confirm_clear"), callback_data="gd_clear_ok")],
+                [InlineKeyboardButton(T(user_id,"gh_btn_cancel"),          callback_data="gd_cancel")]]))
 
     elif action == "gd_clear_ok":
         db = load_drive_db(); uid = str(user_id)
@@ -858,9 +858,7 @@ async def handle_drive_code_input(client, message):
         }
         save_drive_db(db)
         await safe_final_edit(message, status_msg,
-            "✅ **اتصال به گوگل درایو موفق بود!**\n\n"
-            "💾 ظرفیت رایگان: ۱۵ گیگابایت\n\n"
-            "از این به بعد گزینه **📂 آپلود به گوگل درایو** در منوی پردازش فایل نمایش داده می‌شود.")
+            T(message.from_user.id,"gd_connect_success"))
     except Exception as e:
         await safe_final_edit(message, status_msg, T(message.from_user.id,"gd_code_error",e=e))
 
@@ -1039,8 +1037,8 @@ async def user_list_page_callback(client, cq):
 
 @app.on_message(filters.text & filters.regex("^(➕ افزودن کاربر|➕ Add User|➕ افزودن کاربر یوتوب|➕ Add YouTube User|📋 لیست کاربران|📋 User List|➖ حذف کاربر|➖ Remove User|🧹 پاکسازی ربات|🧹 Clean Bot)$") & filters.user(ADMIN_ID))
 async def admin_menu_handler(client, message):
-    t = message.text; chat_id = message.chat.id
-    if t == "📋 لیست کاربران":
+    t = message.text; chat_id = message.chat.id; user_id = message.from_user.id
+    if t in ("📋 لیست کاربران", "📋 User List"):
         users = load_users()
         active = []
         for uid, d in users.items():
@@ -1053,16 +1051,16 @@ async def admin_menu_handler(client, message):
         if not active:
             await message.reply(T(ADMIN_ID,"admin_no_users")); return
         await send_user_list_page(message.chat.id, active, page=0, client=client, send_new=True)
-    elif t == "➕ افزودن کاربر":
+    elif t in ("➕ افزودن کاربر", "➕ Add User"):
         user_states[chat_id] = {"admin_action": "wait_for_user_id"}
         await message.reply(T(user_id,"admin_ask_user_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
-    elif t == "➕ افزودن کاربر یوتوب":
+    elif t in ("➕ افزودن کاربر یوتوب", "➕ Add YouTube User"):
         user_states[chat_id] = {"admin_action": "wait_for_yt_user_id"}
         await message.reply(T(user_id,"admin_ask_yt_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
-    elif t == "➖ حذف کاربر":
+    elif t in ("➖ حذف کاربر", "➖ Remove User"):
         user_states[chat_id] = {"admin_action": "wait_for_delete_id"}
         await message.reply(T(user_id,"admin_ask_user_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
-    elif t == "🧹 پاکسازی ربات":
+    elif t in ("🧹 پاکسازی ربات", "🧹 Clean Bot"):
         for f in os.listdir(TEMP_DIR):
             fp = os.path.join(TEMP_DIR, f)
             try:
@@ -1176,7 +1174,7 @@ async def handle_text_links(client, message):
                  InlineKeyboardButton(f"🎥 480p ({s480})",callback_data="ytqual_480")],
                 [InlineKeyboardButton(f"🎥 720p ({s720})",callback_data="ytqual_720"),
                  InlineKeyboardButton(f"🎥 1080p ({s1080})",callback_data="ytqual_1080")],
-                [InlineKeyboardButton(f"🎵 فقط صدا ({saudio})",callback_data="ytqual_mp3")]
+                [InlineKeyboardButton(T(user_id,"btn_audio_only",size=saudio),callback_data="ytqual_mp3")]
             ])
             await safe_final_edit(message, bot_msg,
                 T(user_id,"yt_quality_prompt",title=title,remaining=remaining), kb)
@@ -1297,7 +1295,7 @@ async def _execute_torrent(client, message, source, is_magnet, status_msg):
 @app.on_callback_query(filters.regex("^size_"))
 async def size_callback(client, cq):
     await cq.answer()
-    chat_id = cq.message.chat.id; action = cq.data.split("_")[1]
+    chat_id = cq.message.chat.id; user_id = cq.from_user.id; action = cq.data.split("_")[1]
     state_key = f"{chat_id}_{cq.message.id}"
     if state_key not in user_states:
         await safe_edit(cq.message, T(user_id,"file_expired")); return
@@ -1318,7 +1316,7 @@ async def size_callback(client, cq):
 @app.on_callback_query(filters.regex("^multi_start$"))
 async def multi_start_callback(client, cq):
     await cq.answer()
-    chat_id = cq.message.chat.id
+    chat_id = cq.message.chat.id; user_id = cq.from_user.id
     if chat_id not in user_multi_tasks: return
     state_key = user_multi_tasks[chat_id]["state_key"]
     user_states[state_key] = {"action":"multi","multi_items":user_multi_tasks[chat_id]["items"]}
@@ -1331,7 +1329,7 @@ async def multi_start_callback(client, cq):
 @app.on_callback_query(filters.regex("^pass_"))
 async def password_callback(client, cq):
     await cq.answer()
-    chat_id = cq.message.chat.id
+    chat_id = cq.message.chat.id; user_id = cq.from_user.id
     parts = cq.data.split("_"); action = parts[1]; msg_id = parts[2]
     state_key = f"{chat_id}_{msg_id}"
     if state_key not in user_states: return
@@ -1499,7 +1497,7 @@ async def core_processing(client, chat_id, data):
                 p = os.path.join(in_dir, item["file_name"])
                 if item["type"] == "media":
                     await client.download_media(item["source"], file_name=p, progress=progress_bar,
-                                                progress_args=(status_msg,time.time(),f"دریافت فایل {i}",True))
+                                                progress_args=(status_msg,time.time(),T(chat_id,"receiving_file"),True,chat_id))
                 elif item["type"] == "youtube":
                     await safe_edit(status_msg, T(chat_id,"yt_item_download",i=i), reply_markup=get_cancel_keyboard(chat_id))
                     qual = item.get("yt_quality","720")
@@ -1533,7 +1531,7 @@ async def core_processing(client, chat_id, data):
             if data["type"] == "media":
                 target_path = os.path.join(in_dir, data["file_name"])
                 await client.download_media(data["source"], file_name=target_path, progress=progress_bar,
-                                            progress_args=(status_msg,time.time(),"دریافت فایل",True))
+                                            progress_args=(status_msg,time.time(),T(chat_id,"receiving_file"),True,chat_id))
             elif is_yt:
                 label = "صدا" if is_audio else ("بهترین کیفیت" if is_best else f"{yt_quality}p")
                 await safe_edit(status_msg, T(chat_id,"yt_downloading",quality=label), reply_markup=get_cancel_keyboard())
@@ -1572,7 +1570,7 @@ async def core_processing(client, chat_id, data):
                                 cur += len(c)
                                 if not check_size_limit(cur, chat_id): raise ValueError("SIZE_LIMIT")
                                 f.write(c)
-                                if total > 0: await progress_bar(cur,total,status_msg,st,"دریافت فایل",True)
+                                if total > 0: await progress_bar(cur,total,status_msg,st,T(chat_id,"receiving_file"),True,chat_id)
 
         # ================= ارسال =================
         if action == "github":
@@ -1645,13 +1643,13 @@ async def core_processing(client, chat_id, data):
             await safe_edit(status_msg, T(chat_id,"sending"))
             if ext in ('.mp4','.mkv','.mov','.avi','.webm'):
                 await client.send_video(chat_id, target_path, progress=progress_bar,
-                                        progress_args=(status_msg,time.time(),"ارسال ویدیو",False))
+                                        progress_args=(status_msg,time.time(),T(chat_id,"sending_video"),False,chat_id))
             elif ext in ('.mp3','.m4a','.ogg','.opus','.flac','.wav'):
                 await client.send_audio(chat_id, target_path, progress=progress_bar,
-                                        progress_args=(status_msg,time.time(),"ارسال صدا",False))
+                                        progress_args=(status_msg,time.time(),T(chat_id,"sending_audio"),False,chat_id))
             else:
                 await client.send_document(chat_id, target_path, progress=progress_bar,
-                                           progress_args=(status_msg,time.time(),"ارسال فایل",False))
+                                           progress_args=(status_msg,time.time(),T(chat_id,"sending_file"),False,chat_id))
             uploaded_ok = True
         else:
             final_source = target_path
@@ -1670,7 +1668,7 @@ async def core_processing(client, chat_id, data):
             for i, p in enumerate(parts,1):
                 cap = T(chat_id,"sending_part",i=i,total=len(parts)) if len(parts) > 1 else T(chat_id,"final_file")
                 await client.send_document(chat_id, p, caption=cap, progress=progress_bar,
-                                           progress_args=(status_msg,time.time(),f"ارسال {i}/{len(parts)}",False))
+                                           progress_args=(status_msg,time.time(),T(chat_id,"sending_part",i=i,total=len(parts)),False,chat_id))
             uploaded_ok = True
 
         if uploaded_ok and data["type"] == "youtube":

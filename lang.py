@@ -414,6 +414,14 @@ STRINGS = {
         "admin_deleted":     "✅ دسترسی لغو شد.",
         "admin_not_found":   "❌ یافت نشد.",
 
+        # action texts در progress bar / progress bar action texts
+        "receiving_file":    "دریافت فایل",
+        "sending_video":     "ارسال ویدیو",
+        "sending_audio":     "ارسال صدا",
+        "sending_file":      "ارسال فایل",
+        "btn_audio_only":    "🎵 فقط صدا ({size})",
+        "torrent_dl_action": "دانلود تورنت",
+
         # اینستاگرام / Instagram
         "ig_received":       "📸 پست اینستاگرام دریافت شد.",
         "ig_select_action":  "📸 **پست اینستاگرام**\n\nنحوه ارسال را انتخاب کنید:",
@@ -829,6 +837,14 @@ STRINGS = {
         "admin_yt_added":    "✅ YouTube access granted. Validity: {days} days.",
         "admin_deleted":     "✅ Access revoked.",
         "admin_not_found":   "❌ Not found.",
+
+        # action texts in progress bar
+        "receiving_file":    "Receiving file",
+        "sending_video":     "Sending video",
+        "sending_audio":     "Sending audio",
+        "sending_file":      "Sending file",
+        "btn_audio_only":    "🎵 Audio only ({size})",
+        "torrent_dl_action": "Torrent download",
 
         # Instagram
         "ig_received":       "📸 Instagram post received.",
