@@ -223,7 +223,7 @@ async def drive_upload_file_stream(token, file_path, file_name, folder_id, statu
                     bar = "■"*(pct//10) + "□"*(10-pct//10)
                     await safe_edit(status_msg,
                         T(chat_id,"gd_uploading",bar=bar,pct=pct,sent=sent[0]/(1024*1024),total=file_size/(1024*1024)),
-                        reply_markup=get_cancel_keyboard())
+                        reply_markup=get_cancel_keyboard(status_msg.chat.id))
                 yield chunk
     async with httpx.AsyncClient(timeout=3600) as c:
         r = await c.put(upload_url, content=file_iter(),
@@ -265,7 +265,7 @@ async def drive_clear_all_files(token, folder_id, status_msg):
                 headers={"Authorization": f"Bearer {token}"})
             if r.status_code == 204:
                 deleted += 1
-                await safe_edit(status_msg, T(0,"gd_clearing_file",deleted=deleted))
+                await safe_edit(status_msg, T(status_msg.chat.id,"gd_clearing_file",deleted=deleted))
     return deleted
 
 # ================= توابع دسترسی =================
@@ -464,7 +464,7 @@ async def gh_delete_file(token, username, repo, path, sha):
 async def gh_clear_all(token, username, repos, status_msg, chat_id=0):
     """پاکسازی با git — حذف پوشه uploads از ریپو"""
     for i, repo in enumerate(repos, 1):
-        await safe_edit(status_msg, T(chat_id,"gh_clear_repo",i=i+1,total=len(repos)))
+        await safe_edit(status_msg, T(chat_id,"gh_clear_repo",i=i,total=len(repos)))
         clone_dir = os.path.join(TEMP_DIR, f"gh_clear_{int(time.time())}_{i}")
         try:
             os.makedirs(clone_dir, exist_ok=True)
@@ -1224,7 +1224,7 @@ async def yt_quality_callback(client, cq):
         user_multi_tasks[chat_id]["items"].append(user_states.pop(state_key))
         await safe_edit(cq.message, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
                         InlineKeyboardMarkup([[InlineKeyboardButton("شروع عملیات",callback_data="multi_start")]])); return
-    label = "صدا" if quality == "mp3" else f"{quality}p"
+    label = T(cq.from_user.id,"audio_only_label") if quality == "mp3" else f"{quality}p"
     await safe_edit(cq.message, T(user_id,"yt_file_ready",name=file_name,quality=label), get_main_keyboard(user_id))
 
 @app.on_message(filters.document | filters.video | filters.audio | filters.voice)
@@ -1248,11 +1248,11 @@ async def handle_media(client, message):
 async def handle_torrent_download(client, message, source, is_magnet=True):
     chat_id = message.chat.id; user_id = message.from_user.id
     sem = get_user_sem(chat_id)
-    status_msg = await message.reply("در حال دریافت متادیتا...", reply_markup=get_cancel_keyboard(), quote=True)
+    status_msg = await message.reply(T(user_id,"torrent_metadata"), reply_markup=get_cancel_keyboard(user_id), quote=True)
     if chat_id == ADMIN_ID: await _execute_torrent(client, message, source, is_magnet, status_msg)
     else:
         async with sem:
-            await safe_edit(status_msg, "در حال دریافت متادیتا...", reply_markup=get_cancel_keyboard())
+            await safe_edit(status_msg, T(user_id,"torrent_metadata"), reply_markup=get_cancel_keyboard(user_id))
             await _execute_torrent(client, message, source, is_magnet, status_msg)
 
 async def _execute_torrent(client, message, source, is_magnet, status_msg):
@@ -1280,10 +1280,10 @@ async def _execute_torrent(client, message, source, is_magnet, status_msg):
         s = handle.status(); pct = s.progress*100
         bar = "■"*int(pct/10)+"□"*(10-int(pct/10))
         await safe_edit(status_msg,
-            f"وضعیت: دانلود تورنت\n[{bar}] {pct:.1f}%\n"
-            f"سرعت: {s.download_rate/1024:.1f} KB/s\n"
-            f"حجم: {s.total_wanted_done/(1024*1024):.1f}MB از {s.total_wanted/(1024*1024):.1f}MB\n"
-            f"سید: {s.num_seeds} | پیر: {s.num_peers}", reply_markup=get_cancel_keyboard())
+            T(chat_id,"torrent_progress",bar=bar,pct=s.progress*100,
+              speed=s.download_rate/1024,done=s.total_wanted_done/(1024*1024),
+              total=s.total_wanted/(1024*1024),seeds=s.num_seeds,peers=s.num_peers),
+            reply_markup=get_cancel_keyboard(chat_id))
         await asyncio.sleep(5)
     items = [f for f in os.listdir(chat_temp_dir) if f != "task.torrent"]
     final_path = os.path.join(chat_temp_dir, items[0])
@@ -1306,11 +1306,11 @@ async def size_callback(client, cq):
     elif action == "multi":
         user_multi_tasks[chat_id] = {"state_key": state_key, "items": [user_states.pop(state_key)]}
         await safe_edit(cq.message, T(user_id,"first_file_added"),
-                        InlineKeyboardMarkup([[InlineKeyboardButton("شروع آرشیو",callback_data="multi_start")]]))
+                        InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"btn_start_archive"),callback_data="multi_start")]]))
     else:
         await safe_edit(cq.message, T(user_id,"ask_password"), InlineKeyboardMarkup([
-            [InlineKeyboardButton("بدون رمز",callback_data=f"pass_none_{cq.message.id}")],
-            [InlineKeyboardButton("تعیین رمز عبور",callback_data=f"pass_set_{cq.message.id}")]
+            [InlineKeyboardButton(T(user_id,"btn_no_pass"),callback_data=f"pass_none_{cq.message.id}")],
+            [InlineKeyboardButton(T(user_id,"btn_set_pass"),callback_data=f"pass_set_{cq.message.id}")]
         ]))
 
 @app.on_callback_query(filters.regex("^multi_start$"))
@@ -1319,11 +1319,12 @@ async def multi_start_callback(client, cq):
     chat_id = cq.message.chat.id; user_id = cq.from_user.id
     if chat_id not in user_multi_tasks: return
     state_key = user_multi_tasks[chat_id]["state_key"]
+    orig_msg_id = state_key.split(f"{chat_id}_", 1)[1]
     user_states[state_key] = {"action":"multi","multi_items":user_multi_tasks[chat_id]["items"]}
     del user_multi_tasks[chat_id]
-    await safe_edit(cq.message, "رمز عبور؟", InlineKeyboardMarkup([
-        [InlineKeyboardButton("بدون رمز",callback_data=f"pass_none_{cq.message.id}")],
-        [InlineKeyboardButton("تعیین رمز",callback_data=f"pass_set_{cq.message.id}")]
+    await safe_edit(cq.message, T(user_id,"ask_password"), InlineKeyboardMarkup([
+        [InlineKeyboardButton(T(user_id,"btn_no_pass"), callback_data=f"pass_none_{orig_msg_id}")],
+        [InlineKeyboardButton(T(user_id,"btn_set_pass"), callback_data=f"pass_set_{orig_msg_id}")]
     ]))
 
 @app.on_callback_query(filters.regex("^pass_"))
@@ -1533,8 +1534,8 @@ async def core_processing(client, chat_id, data):
                 await client.download_media(data["source"], file_name=target_path, progress=progress_bar,
                                             progress_args=(status_msg,time.time(),T(chat_id,"receiving_file"),True,chat_id))
             elif is_yt:
-                label = "صدا" if is_audio else ("بهترین کیفیت" if is_best else f"{yt_quality}p")
-                await safe_edit(status_msg, T(chat_id,"yt_downloading",quality=label), reply_markup=get_cancel_keyboard())
+                label = T(chat_id,"audio_only_label") if is_audio else f"{yt_quality}p"
+                await safe_edit(status_msg, T(chat_id,"yt_downloading",quality=label), reply_markup=get_cancel_keyboard(chat_id))
                 if is_audio:
                     target_path = os.path.join(in_dir, data["file_name"]+".m4a")
                     cmd = ["yt-dlp","-f","bestaudio[ext=m4a]/bestaudio","--js-runtimes","node","--remote-components","ejs:github","-o",target_path]
@@ -1589,10 +1590,8 @@ async def core_processing(client, chat_id, data):
             if chat_id != ADMIN_ID:
                 if GITHUB_GLOBAL_SEM.locked():
                     await safe_edit(status_msg,
-                        "⏳ **صف آپلود گیتهاب**\n\n"
-                        "در حال حاضر ۴ آپلود دیگر در حال انجام است.\n"
-                        "به محض آزاد شدن ظرفیت، آپلود شما شروع می‌شود...",
-                        reply_markup=get_cancel_keyboard())
+                        T(chat_id,"gh_queued"),
+                        reply_markup=get_cancel_keyboard(chat_id))
                 async with GITHUB_GLOBAL_SEM:
                     await _do_github_upload(
                         client, chat_id, data, target_path, chat_base,
@@ -1625,10 +1624,8 @@ async def core_processing(client, chat_id, data):
             if chat_id != ADMIN_ID:
                 if DRIVE_GLOBAL_SEM.locked():
                     await safe_edit(status_msg,
-                        "⏳ **صف آپلود گوگل درایو**\n\n"
-                        "در حال حاضر ۴ آپلود دیگر در حال انجام است.\n"
-                        "به محض آزاد شدن ظرفیت، آپلود شما شروع می‌شود...",
-                        reply_markup=get_cancel_keyboard())
+                        T(chat_id,"gd_queued"),
+                        reply_markup=get_cancel_keyboard(chat_id))
                 async with DRIVE_GLOBAL_SEM:
                     await _do_drive_upload(client, chat_id, data, target_path, chat_base,
                                            token, folder_id, remaining_d, status_msg)

@@ -420,6 +420,7 @@ STRINGS = {
         "sending_audio":     "ارسال صدا",
         "sending_file":      "ارسال فایل",
         "btn_audio_only":    "🎵 فقط صدا ({size})",
+        "audio_only_label":  "صدا",
         "torrent_dl_action": "دانلود تورنت",
 
         # اینستاگرام / Instagram
@@ -844,6 +845,7 @@ STRINGS = {
         "sending_audio":     "Sending audio",
         "sending_file":      "Sending file",
         "btn_audio_only":    "🎵 Audio only ({size})",
+        "audio_only_label":  "Audio",
         "torrent_dl_action": "Torrent download",
 
         # Instagram
