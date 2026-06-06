@@ -128,7 +128,8 @@ success "Install directory ready: $INSTALL_DIR"
 info "Copying bot files..."
 cp "$SCRIPT_DIR/bot.py"    "$INSTALL_DIR/bot.py"
 cp "$SCRIPT_DIR/config.py" "$INSTALL_DIR/config.py"
-success "bot.py and config.py copied"
+cp "$SCRIPT_DIR/lang.py"   "$INSTALL_DIR/lang.py"
+success "bot.py, config.py and lang.py copied"
 
 # Restore backed up config if exists
 if [[ -f /tmp/mega_leecher_config_backup.env ]]; then
