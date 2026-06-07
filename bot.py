@@ -868,11 +868,8 @@ async def github_menu(client, message):
     user_id = message.from_user.id
 
     if not has_access(user_id):
-        await message.reply(
-            f"⛔️ **دسترسی محدود شد**\n\n"
-            f"قابلیت فضای ابری گیتهاب فقط برای کاربران دارای اشتراک فعال است.\n\n"
-            f"برای خرید اشتراک به {PURCHASE_USERNAME} پیام دهید."
-        )
+        await message.reply(T(user_id,"feature_needs_sub",purchase=PURCHASE_USERNAME))
+        return
         return
 
     db = load_github_db(); uid = str(user_id); has_t = uid in db
@@ -883,7 +880,7 @@ async def github_menu(client, message):
         [InlineKeyboardButton(T(user_id,"gh_btn_token_change") if has_t else T(user_id,"gh_btn_token"), callback_data="gh_set_token")]
     ]
     if has_t:
-        buttons.append([InlineKeyboardButton("📊 فضای باقیمانده", callback_data="gh_space")])
+        buttons.append([InlineKeyboardButton(T(user_id,"gh_btn_space"), callback_data="gh_space")])
         buttons.append([InlineKeyboardButton(T(user_id,"gh_btn_clear"), callback_data="gh_clear")])
     await message.reply(
         T(user_id,"gh_menu_title",status=status),
@@ -1246,7 +1243,7 @@ async def handle_text_links(client, message):
     if chat_id in user_multi_tasks:
         user_multi_tasks[chat_id]["items"].append({"type":"url","source":final_url,"file_name":file_name})
         await safe_final_edit(message, bot_msg, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
-                              InlineKeyboardMarkup([[InlineKeyboardButton("شروع عملیات",callback_data="multi_start")]])); return
+                              InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"btn_start_op"),callback_data="multi_start")]])); return
     await safe_final_edit(message, bot_msg, T(user_id,"file_name_prompt",name=file_name), get_main_keyboard(user_id))
     user_states[f"{chat_id}_{bot_msg.id}"] = {"type":"url","source":final_url,"file_name":file_name}
 
@@ -1265,7 +1262,7 @@ async def yt_quality_callback(client, cq):
     if chat_id in user_multi_tasks:
         user_multi_tasks[chat_id]["items"].append(user_states.pop(state_key))
         await safe_edit(cq.message, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
-                        InlineKeyboardMarkup([[InlineKeyboardButton("شروع عملیات",callback_data="multi_start")]])); return
+                        InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"btn_start_op"),callback_data="multi_start")]])); return
     label = T(cq.from_user.id,"audio_only_label") if quality == "mp3" else f"{quality}p"
     await safe_edit(cq.message, T(user_id,"yt_file_ready",name=file_name,quality=label), get_main_keyboard(user_id))
 
@@ -1282,7 +1279,7 @@ async def handle_media(client, message):
     if chat_id in user_multi_tasks:
         user_multi_tasks[chat_id]["items"].append({"type":"media","source":message,"file_name":file_name})
         await safe_final_edit(message, bot_msg, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
-                              InlineKeyboardMarkup([[InlineKeyboardButton("شروع عملیات",callback_data="multi_start")]])); return
+                              InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"btn_start_op"),callback_data="multi_start")]])); return
     await safe_final_edit(message, bot_msg, T(user_id,"file_received",name=file_name), get_main_keyboard(user_id))
     user_states[f"{chat_id}_{bot_msg.id}"] = {"type":"media","source":message,"file_name":file_name}
 
@@ -1533,7 +1530,8 @@ async def core_processing(client, chat_id, data):
                     T(chat_id,"gh_quota_core",limit=GITHUB_DAILY_LIMIT)); return
 
         target_path = ""
-        if data["type"] == "local_path":
+        data_type = data.get("type", "")
+        if data_type == "local_path":
             target_path = data["source"]
         elif action == "multi":
             for i, item in enumerate(data["multi_items"], 1):
@@ -1568,10 +1566,10 @@ async def core_processing(client, chat_id, data):
             target_path = in_dir
         else:
             yt_quality = data.get("yt_quality","720")
-            is_yt = data["type"] == "youtube"
+            is_yt = data_type == "youtube"
             is_audio = is_yt and yt_quality == "mp3"
             is_best = is_yt and yt_quality == "best"  # اینستاگرام
-            if data["type"] == "media":
+            if data_type == "media":
                 target_path = os.path.join(in_dir, data["file_name"])
                 await client.download_media(data["source"], file_name=target_path, progress=progress_bar,
                                             progress_args=(status_msg,time.time(),T(chat_id,"receiving_file"),True,chat_id))
@@ -1710,7 +1708,7 @@ async def core_processing(client, chat_id, data):
                                            progress_args=(status_msg,time.time(),T(chat_id,"sending_part",i=i,total=len(parts)),False,chat_id))
             uploaded_ok = True
 
-        if uploaded_ok and data["type"] == "youtube":
+        if uploaded_ok and data_type == "youtube":
             record_yt_download(chat_id)
 
         await safe_final_edit(status_msg, status_msg, T(chat_id,"done"))
