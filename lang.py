@@ -233,26 +233,68 @@ STRINGS = {
         "gh_connected":      "✅ متصل به اکانت `{username}`",
         "gh_not_connected":  "❌ توکن تنظیم نشده",
         "gh_btn_guide":      "📖 راهنمای گام به گام",
+        "gh_guide_next":     "مرحله بعد ←",
+        "gh_guide_prev":     "→ مرحله قبل",
+        "gh_guide_page_num": "صفحه {page} از {total}",
+
         "gh_btn_token":      "🔑 وارد کردن توکن",
         "gh_btn_token_change": "🔑 تغییر توکن",
         "gh_btn_space":      "📊 فضای باقیمانده",
         "gh_btn_clear":      "🗑 پاکسازی همه فایل‌ها",
 
-        "gh_guide_text":
-            "📖 **راهنمای دریافت توکن گیتهاب**\n\n"
-            "**مرحله ۱ — ساخت حساب:**\n"
-            "① به `github.com` بروید و ثبت‌نام کنید\n\n"
-            "**مرحله ۲ — رفتن به تنظیمات:**\n"
-            "① تصویر پروفایل → **Settings**\n"
-            "② پایین صفحه → **Developer settings**\n"
-            "③ **Personal access tokens** → **Fine-grained tokens**\n"
-            "④ **Generate new token**\n\n"
-            "**مرحله ۳ — تنظیمات توکن:**\n"
-            "① نام دلخواه (مثلاً `mega-leecher`)\n"
-            "② Expiration: **No expiration**\n"
-            "③ Repository access: **All repositories**\n"
-            "④ Permissions → Contents: **Read and write**\n\n"
-            "⚠️ توکن فقط یک‌بار نمایش داده می‌شود — همین‌جا کپی کنید!",
+        "gh_guide_text":    "📖 **راهنمای گام به گام دریافت توکن گیتهاب**",
+        "gh_guide_page1":
+            "📖 **راهنمای گام به گام دریافت توکن گیتهاب**\n\n"
+            "گیتهاب یک سرویس رایگان آنلاین است که به شما فضای ذخیره‌سازی ابری می‌دهد.\n\n"
+            "**مرحله ۱ — ساخت حساب کاربری:**\n"
+            "① مرورگر خود را باز کنید\n"
+            "② آدرس `github.com` را وارد کنید\n"
+            "③ روی دکمه **Sign up** (ثبت‌نام) کلیک کنید\n"
+            "④ ایمیل، رمز عبور و یک نام کاربری وارد کنید\n"
+            "⑤ مراحل تأیید ایمیل را کامل کنید\n\n"
+            "اگر قبلاً حساب دارید مستقیم وارد شوید.\n\n"
+            "**مرحله ۲ — ورود به تنظیمات:**\n"
+            "① وارد حساب خود شوید\n"
+            "② روی تصویر پروفایل خود (گوشه بالا-راست صفحه) کلیک کنید\n"
+            "③ از منوی باز شده گزینه **Settings** را انتخاب کنید",
+        "gh_guide_page2":
+            "📖 **راهنما — مرحله ۳ و ۴**\n\n"
+            "**مرحله ۳ — رفتن به بخش توسعه‌دهندگان:**\n"
+            "① در صفحه Settings، به پایین اسکرول کنید\n"
+            "② در منوی سمت چپ، گزینه **Developer settings** را پیدا کنید (آخرین گزینه)\n"
+            "③ روی آن کلیک کنید\n\n"
+            "**مرحله ۴ — ساخت توکن:**\n"
+            "① روی **Personal access tokens** کلیک کنید\n"
+            "② گزینه **Fine-grained tokens** را انتخاب کنید\n"
+            "③ روی دکمه سبز **Generate new token** کلیک کنید",
+        "gh_guide_page3":
+            "📖 **راهنما — مرحله ۵ (تنظیمات توکن)**\n\n"
+            "در صفحه ساخت توکن موارد زیر را تنظیم کنید:\n\n"
+            "① **Token name** (نام توکن):\n"
+            "هر نام دلخواهی وارد کنید\n"
+            "مثلاً: `mega-leecher`\n\n"
+            "② **Expiration** (تاریخ انقضا):\n"
+            "گزینه **No expiration** را انتخاب کنید\n"
+            "(بدون انقضا)\n\n"
+            "③ **Repository access** (دسترسی به ریپازیتوری):\n"
+            "گزینه **All repositories** را انتخاب کنید\n\n"
+            "سپس به مرحله بعد بروید 👇",
+        "gh_guide_page4":
+            "📖 **راهنما — مرحله ۶ (مجوزها)**\n\n"
+            "① در همان صفحه به بخش **Permissions** اسکرول کنید\n"
+            "② روی **Repository permissions** کلیک کنید تا باز شود\n"
+            "③ اگر همه مجوزها را نمی‌بینید دکمه **Show more** را بزنید\n\n"
+            "④ این ۴ مجوز را پیدا کرده و برای هر کدام **Read and write** انتخاب کنید:\n\n"
+            "✅ **Actions** ← Read and write\n"
+            "✅ **Administration** ← Read and write\n"
+            "✅ **Contents** ← Read and write\n"
+            "✅ **Workflows** ← Read and write\n\n"
+            "**مرحله ۷ — دریافت توکن:**\n"
+            "① به بالای صفحه برگردید\n"
+            "② روی دکمه سبز **Generate token** کلیک کنید\n"
+            "③ توکن نمایش داده می‌شود — همین الان کپی کنید!\n\n"
+            "⚠️ توکن فقط **یک‌بار** نمایش داده می‌شود.\n"
+            "بعد از بستن صفحه دیگر قابل مشاهده نیست!",
 
         "gh_token_prompt":
             "🔑 لطفاً توکن GitHub خود را ارسال کنید\n(با `ghp_` یا `github_pat_` شروع میشه):",
@@ -658,26 +700,67 @@ STRINGS = {
         "gh_connected":      "✅ Connected to `{username}`",
         "gh_not_connected":  "❌ Token not set",
         "gh_btn_guide":      "📖 Step-by-Step Guide",
+        "gh_guide_next":     "Next Step →",
+        "gh_guide_prev":     "← Previous Step",
+        "gh_guide_page_num": "Page {page} of {total}",
+
         "gh_btn_token":      "🔑 Enter Token",
         "gh_btn_token_change": "🔑 Change Token",
         "gh_btn_space":      "📊 Storage Info",
         "gh_btn_clear":      "🗑 Clear All Files",
 
-        "gh_guide_text":
-            "📖 **How to Get a GitHub Token**\n\n"
+        "gh_guide_text":    "📖 **Step-by-Step Guide to Get a GitHub Token**",
+        "gh_guide_page1":
+            "📖 **Step-by-Step Guide to Get a GitHub Token**\n\n"
+            "GitHub is a free online service that gives you cloud storage.\n\n"
             "**Step 1 — Create an account:**\n"
-            "① Go to `github.com` and sign up\n\n"
-            "**Step 2 — Go to settings:**\n"
-            "① Profile picture → **Settings**\n"
-            "② Scroll down → **Developer settings**\n"
-            "③ **Personal access tokens** → **Fine-grained tokens**\n"
-            "④ **Generate new token**\n\n"
-            "**Step 3 — Token settings:**\n"
-            "① Any name (e.g. `mega-leecher`)\n"
-            "② Expiration: **No expiration**\n"
-            "③ Repository access: **All repositories**\n"
-            "④ Permissions → Contents: **Read and write**\n\n"
-            "⚠️ The token is shown only once — copy it here!",
+            "① Open your browser\n"
+            "② Go to `github.com`\n"
+            "③ Click **Sign up**\n"
+            "④ Enter your email, password and a username\n"
+            "⑤ Complete the email verification steps\n\n"
+            "If you already have an account, just sign in.\n\n"
+            "**Step 2 — Go to Settings:**\n"
+            "① Sign in to your account\n"
+            "② Click your profile picture (top-right corner)\n"
+            "③ Select **Settings** from the dropdown menu",
+        "gh_guide_page2":
+            "📖 **Guide — Steps 3 & 4**\n\n"
+            "**Step 3 — Go to Developer settings:**\n"
+            "① In Settings, scroll down\n"
+            "② Find **Developer settings** in the left sidebar (last option)\n"
+            "③ Click on it\n\n"
+            "**Step 4 — Create a token:**\n"
+            "① Click **Personal access tokens**\n"
+            "② Select **Fine-grained tokens**\n"
+            "③ Click the green **Generate new token** button",
+        "gh_guide_page3":
+            "📖 **Guide — Step 5 (Token Settings)**\n\n"
+            "On the token creation page, configure the following:\n\n"
+            "① **Token name:**\n"
+            "Enter any name you like\n"
+            "Example: `mega-leecher`\n\n"
+            "② **Expiration:**\n"
+            "Select **No expiration**\n\n"
+            "③ **Repository access:**\n"
+            "Select **All repositories**\n\n"
+            "Then continue to the next step 👇",
+        "gh_guide_page4":
+            "📖 **Guide — Step 6 (Permissions)**\n\n"
+            "① Scroll to the **Permissions** section on the same page\n"
+            "② Click **Repository permissions** to expand it\n"
+            "③ If you don't see all permissions, click **Show more**\n\n"
+            "④ Find these 4 permissions and set each to **Read and write**:\n\n"
+            "✅ **Actions** ← Read and write\n"
+            "✅ **Administration** ← Read and write\n"
+            "✅ **Contents** ← Read and write\n"
+            "✅ **Workflows** ← Read and write\n\n"
+            "**Step 7 — Get your token:**\n"
+            "① Scroll back to the top\n"
+            "② Click the green **Generate token** button\n"
+            "③ Your token will be shown — copy it NOW!\n\n"
+            "⚠️ The token is shown **only once**.\n"
+            "You cannot see it again after closing the page!",
 
         "gh_token_prompt":
             "🔑 Please send your GitHub token\n(starts with `ghp_` or `github_pat_`):",

@@ -886,15 +886,43 @@ async def github_menu(client, message):
         T(user_id,"gh_menu_title",status=status),
         reply_markup=InlineKeyboardMarkup(buttons))
 
+def _gh_guide_kb(user_id, page):
+    # صفحه‌بندی راهنمای گیتهاب / GitHub guide pagination keyboard
+    total = 4
+    row = []
+    if page > 1:
+        row.append(InlineKeyboardButton(
+            T(user_id,"gh_guide_prev"), callback_data=f"gh_guide_p{page-1}"))
+    if page < total:
+        row.append(InlineKeyboardButton(
+            T(user_id,"gh_guide_next"), callback_data=f"gh_guide_p{page+1}"))
+    else:
+        row.append(InlineKeyboardButton(
+            T(user_id,"gh_btn_token"), callback_data="gh_set_token"))
+    nav = [InlineKeyboardButton(
+        T(user_id,"gh_guide_page_num",page=page,total=total),
+        callback_data="noop")]
+    return InlineKeyboardMarkup([row, nav])
+
+@app.on_callback_query(filters.regex("^noop$"))
+async def noop_callback(client, cq):
+    await cq.answer()
+
 @app.on_callback_query(filters.regex("^gh_"))
 async def github_callback(client, cq):
     await cq.answer()
     chat_id = cq.message.chat.id; user_id = cq.from_user.id; action = cq.data
 
     if action == "gh_guide":
-        await safe_edit(cq.message, T(user_id,"gh_guide_text"),
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(T(user_id,"gh_btn_token"), callback_data="gh_set_token")]]))
+        await safe_edit(cq.message, T(user_id,"gh_guide_page1"),
+            reply_markup=_gh_guide_kb(user_id, 1))
+
+    elif action.startswith("gh_guide_p"):
+        page = int(action.split("gh_guide_p")[1])
+        pages = {1:"gh_guide_page1", 2:"gh_guide_page2",
+                 3:"gh_guide_page3", 4:"gh_guide_page4"}
+        await safe_edit(cq.message, T(user_id, pages[page]),
+            reply_markup=_gh_guide_kb(user_id, page))
 
     elif action == "gh_set_token":
         user_states[f"gh_{chat_id}"] = {"type": "awaiting_gh_token"}
