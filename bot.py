@@ -986,31 +986,26 @@ async def cancel_callback(client, cq):
 USERS_PER_PAGE = 5
 
 async def send_user_list_page(chat_id, active_users, page, client, send_new=False, message_id=None):
+    # نمایش لیست کاربران با صفحه‌بندی / Display paginated user list
+    lang = get_user_lang(ADMIN_ID)
     total = len(active_users)
     total_pages = (total + USERS_PER_PAGE - 1) // USERS_PER_PAGE
     start = page * USERS_PER_PAGE
     end = min(start + USERS_PER_PAGE, total)
     page_users = active_users[start:end]
 
-    text = f"📋 **لیست کاربران** — صفحه {page+1} از {total_pages} (جمع: {total} نفر)\n"
+    text = _T(lang, "admin_user_list_title", page=page+1, total_pages=total_pages, total=total)
     text += "━━━━━━━━━━━━━━━━━\n\n"
     for i, u in enumerate(page_users, start + 1):
-        text += (
-            f"**{i}.** 👤 {u['uname']}\n"
-            f"  🆔 `{u['uid']}`\n"
-            f"  ⏳ اشتراک: **{u['rd']} روز**\n"
-            f"  🎬 یوتوب: **{u['ytd']} روز**\n"
-            f"━━━━━━━━━━━━━━━━━\n"
-        )
+        text += _T(lang, "admin_user_entry", i=i, uname=u['uname'], uid=u['uid'], rd=u['rd'], ytd=u['ytd'])
 
     buttons = []
     row = []
     if page > 0:
-        row.append(InlineKeyboardButton(T(ADMIN_ID,"admin_btn_prev"), callback_data=f"ulist_{page-1}"))
+        row.append(InlineKeyboardButton(_T(lang,"admin_btn_prev"), callback_data=f"ulist_{page-1}"))
     if page < total_pages - 1:
-        row.append(InlineKeyboardButton(T(ADMIN_ID,"admin_btn_next"), callback_data=f"ulist_{page+1}"))
-    if row:
-        buttons.append(row)
+        row.append(InlineKeyboardButton(_T(lang,"admin_btn_next"), callback_data=f"ulist_{page+1}"))
+    if row: buttons.append(row)
     kb = InlineKeyboardMarkup(buttons) if buttons else None
 
     if send_new:
@@ -1049,17 +1044,20 @@ async def admin_menu_handler(client, message):
                 if rd > 0 or ytd > 0:
                     active.append({"uid": uid, "uname": d.get("username","نامشخص"), "rd": rd, "ytd": ytd})
         if not active:
-            await message.reply(T(ADMIN_ID,"admin_no_users")); return
+            await message.reply(T(user_id,"admin_no_users")); return
         await send_user_list_page(message.chat.id, active, page=0, client=client, send_new=True)
     elif t in ("➕ افزودن کاربر", "➕ Add User"):
         user_states[chat_id] = {"admin_action": "wait_for_user_id"}
-        await message.reply(T(user_id,"admin_ask_user_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
+        await message.reply(T(user_id,"admin_ask_user_id"),
+            reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
     elif t in ("➕ افزودن کاربر یوتوب", "➕ Add YouTube User"):
         user_states[chat_id] = {"admin_action": "wait_for_yt_user_id"}
-        await message.reply(T(user_id,"admin_ask_yt_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
+        await message.reply(T(user_id,"admin_ask_yt_id"),
+            reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
     elif t in ("➖ حذف کاربر", "➖ Remove User"):
         user_states[chat_id] = {"admin_action": "wait_for_delete_id"}
-        await message.reply(T(user_id,"admin_ask_user_id"), reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
+        await message.reply(T(user_id,"admin_ask_user_id"),
+            reply_markup=ReplyKeyboardMarkup([[T(user_id,"admin_cancel")]], resize_keyboard=True))
     elif t in ("🧹 پاکسازی ربات", "🧹 Clean Bot"):
         for f in os.listdir(TEMP_DIR):
             fp = os.path.join(TEMP_DIR, f)
@@ -1067,48 +1065,92 @@ async def admin_menu_handler(client, message):
                 if os.path.isfile(fp): os.unlink(fp)
                 elif os.path.isdir(fp): shutil.rmtree(fp)
             except: pass
-        await message.reply(T(ADMIN_ID,"admin_clean_done"), reply_markup=get_reply_menu(ADMIN_ID))
+        await message.reply(T(user_id,"admin_clean_done"), reply_markup=get_reply_menu(ADMIN_ID))
 
 @app.on_message(filters.text & filters.user(ADMIN_ID))
 async def admin_states_handler(client, message):
-    chat_id = message.chat.id; t = message.text
+    # پردازش مرحله‌ای مدیریت کاربران / Step-by-step user management processing
+    chat_id = message.chat.id
+    user_id = message.from_user.id  # ← کلید: user_id برای T() / key: user_id for T()
+    t = message.text
     state = user_states.get(chat_id, {}).get("admin_action")
-    if (t == "انصراف" or t == "Cancel") and state:
-        user_states.pop(chat_id, None); await message.reply(T(ADMIN_ID,"admin_cancelled"), reply_markup=get_reply_menu(ADMIN_ID)); return
+
+    cancel_words = (T(user_id,"admin_cancel"),)
+    if t in cancel_words and state:
+        user_states.pop(chat_id, None)
+        await message.reply(T(user_id,"admin_cancelled"), reply_markup=get_reply_menu(ADMIN_ID))
+        return
+
     if state == "wait_for_user_id":
-        user_states[chat_id]["target_user_id"] = t; user_states[chat_id]["admin_action"] = "wait_for_days"
+        user_states[chat_id]["target_user_id"] = t
+        user_states[chat_id]["admin_action"] = "wait_for_days"
         await message.reply(T(user_id,"admin_ask_days"))
+
     elif state == "wait_for_days":
-        user_states[chat_id]["target_days"] = int(t); user_states[chat_id]["admin_action"] = "wait_for_username"
+        try:
+            days = int(t)
+        except ValueError:
+            await message.reply("❌" if get_user_lang(user_id) == "en" else "❌ عدد وارد کنید."); return
+        user_states[chat_id]["target_days"] = days
+        user_states[chat_id]["admin_action"] = "wait_for_username"
         await message.reply(T(user_id,"admin_ask_username"))
+
     elif state == "wait_for_username":
-        tid = user_states[chat_id]["target_user_id"]; days = user_states[chat_id]["target_days"]
-        exp = time.time()+days*86400; users = load_users()
-        if tid not in users: users[tid] = {"expire":exp,"username":t,"yt_expire":0}
-        else: users[tid]["expire"]=exp; users[tid]["username"]=t
-        save_users(users); user_states.pop(chat_id, None)
-        await message.reply(T(user_id,"admin_added",days=days), reply_markup=get_reply_menu(ADMIN_ID))
+        tid = user_states[chat_id]["target_user_id"]
+        days = user_states[chat_id]["target_days"]
+        exp = time.time() + days * 86400
+        users = load_users()
+        if tid not in users:
+            users[tid] = {"expire": exp, "username": t, "yt_expire": 0, "lang": "fa"}
+        else:
+            users[tid]["expire"] = exp
+            users[tid]["username"] = t
+        save_users(users)
+        user_states.pop(chat_id, None)
+        await message.reply(T(user_id,"admin_added", days=days), reply_markup=get_reply_menu(ADMIN_ID))
+
     elif state == "wait_for_yt_user_id":
-        user_states[chat_id]["target_user_id"] = t; user_states[chat_id]["admin_action"] = "wait_for_yt_days"
+        user_states[chat_id]["target_user_id"] = t
+        user_states[chat_id]["admin_action"] = "wait_for_yt_days"
         await message.reply(T(user_id,"admin_ask_yt_days"))
+
     elif state == "wait_for_yt_days":
-        user_states[chat_id]["target_days"] = int(t); user_states[chat_id]["admin_action"] = "wait_for_yt_username"
+        try:
+            days = int(t)
+        except ValueError:
+            await message.reply("❌"); return
+        user_states[chat_id]["target_days"] = days
+        user_states[chat_id]["admin_action"] = "wait_for_yt_username"
         await message.reply(T(user_id,"admin_ask_username"))
+
     elif state == "wait_for_yt_username":
-        tid = user_states[chat_id]["target_user_id"]; days = user_states[chat_id]["target_days"]
-        exp = time.time()+days*86400; users = load_users()
-        if tid not in users: users[tid] = {"expire":0,"username":t,"yt_expire":exp}
-        else: users[tid]["yt_expire"]=exp; users[tid]["username"]=t
-        save_users(users); user_states.pop(chat_id, None)
-        await message.reply(T(user_id,"admin_yt_added",days=days), reply_markup=get_reply_menu(ADMIN_ID))
+        tid = user_states[chat_id]["target_user_id"]
+        days = user_states[chat_id]["target_days"]
+        exp = time.time() + days * 86400
+        users = load_users()
+        if tid not in users:
+            users[tid] = {"expire": 0, "username": t, "yt_expire": exp, "lang": "fa"}
+        else:
+            users[tid]["yt_expire"] = exp
+            users[tid]["username"] = t
+        save_users(users)
+        user_states.pop(chat_id, None)
+        await message.reply(T(user_id,"admin_yt_added", days=days), reply_markup=get_reply_menu(ADMIN_ID))
+
     elif state == "wait_for_delete_id":
-        tid = t.strip(); users = load_users()
+        tid = t.strip()
+        users = load_users()
         if tid in users:
-            del users[tid]; save_users(users); user_states.pop(chat_id, None)
+            del users[tid]
+            save_users(users)
+            user_states.pop(chat_id, None)
             await message.reply(T(user_id,"admin_deleted"), reply_markup=get_reply_menu(ADMIN_ID))
         else:
-            user_states.pop(chat_id, None); await message.reply("❌ یافت نشد.", reply_markup=get_reply_menu(ADMIN_ID))
-    else: message.continue_propagation()
+            user_states.pop(chat_id, None)
+            await message.reply(T(user_id,"admin_not_found"), reply_markup=get_reply_menu(ADMIN_ID))
+
+    else:
+        message.continue_propagation()
 
 # ================= هندلرهای پردازش =================
 @app.on_message(filters.text & filters.regex(r"^https?://|^magnet:\?xt=urn:btih:"))
