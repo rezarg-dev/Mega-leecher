@@ -937,7 +937,7 @@ async def github_callback(client, cq):
         d = db[uid]
         await safe_edit(cq.message, T(user_id,"gh_clearing"))
         try:
-            await gh_clear_all(d["token"], d["username"], d.get("repos",[]), cq.message)
+            await gh_clear_all(d["token"], d["username"], d.get("repos",[]), cq.message, user_id)
             reset_repo_sizes(d["username"], d.get("repos", []))
             await safe_edit(cq.message, T(user_id,"gh_clear_done"))
         except Exception as e:
@@ -1138,7 +1138,10 @@ async def admin_states_handler(client, message):
         tid = t.strip()
         users = load_users()
         if tid in users:
+            # حفظ تنظیمات زبان بعد از حذف اشتراک / Preserve lang setting on delete
+            saved_lang = users[tid].get("lang", "fa") if isinstance(users.get(tid), dict) else "fa"
             del users[tid]
+            users[tid] = {"expire": 0, "yt_expire": 0, "lang": saved_lang}
             save_users(users)
             user_states.pop(chat_id, None)
             await message.reply(T(user_id,"admin_deleted"), reply_markup=get_reply_menu(ADMIN_ID))
@@ -1242,7 +1245,7 @@ async def handle_text_links(client, message):
         await safe_final_edit(message, bot_msg, T(user_id,"no_direct_link")); return
     if chat_id in user_multi_tasks:
         user_multi_tasks[chat_id]["items"].append({"type":"url","source":final_url,"file_name":file_name})
-        await safe_final_edit(message, bot_msg, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
+        await safe_final_edit(message, bot_msg, T(user_id,"file_added_multi",count=len(user_multi_tasks[chat_id]['items'])),
                               InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"btn_start_op"),callback_data="multi_start")]])); return
     await safe_final_edit(message, bot_msg, T(user_id,"file_name_prompt",name=file_name), get_main_keyboard(user_id))
     user_states[f"{chat_id}_{bot_msg.id}"] = {"type":"url","source":final_url,"file_name":file_name}
@@ -1261,7 +1264,7 @@ async def yt_quality_callback(client, cq):
     file_name = user_states[state_key]["file_name"]
     if chat_id in user_multi_tasks:
         user_multi_tasks[chat_id]["items"].append(user_states.pop(state_key))
-        await safe_edit(cq.message, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
+        await safe_edit(cq.message, T(user_id,"file_added_multi",count=len(user_multi_tasks[chat_id]['items'])),
                         InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"btn_start_op"),callback_data="multi_start")]])); return
     label = T(cq.from_user.id,"audio_only_label") if quality == "mp3" else f"{quality}p"
     await safe_edit(cq.message, T(user_id,"yt_file_ready",name=file_name,quality=label), get_main_keyboard(user_id))
@@ -1278,7 +1281,7 @@ async def handle_media(client, message):
     bot_msg = await message.reply(T(user_id,"processing"), quote=True)
     if chat_id in user_multi_tasks:
         user_multi_tasks[chat_id]["items"].append({"type":"media","source":message,"file_name":file_name})
-        await safe_final_edit(message, bot_msg, f"افزوده شد. (مجموع: {len(user_multi_tasks[chat_id]['items'])})",
+        await safe_final_edit(message, bot_msg, T(user_id,"file_added_multi",count=len(user_multi_tasks[chat_id]['items'])),
                               InlineKeyboardMarkup([[InlineKeyboardButton(T(user_id,"btn_start_op"),callback_data="multi_start")]])); return
     await safe_final_edit(message, bot_msg, T(user_id,"file_received",name=file_name), get_main_keyboard(user_id))
     user_states[f"{chat_id}_{bot_msg.id}"] = {"type":"media","source":message,"file_name":file_name}
