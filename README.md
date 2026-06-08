@@ -20,6 +20,20 @@
 
 ---
 
+## Support the Project
+
+If Mega Leecher has been useful to you, consider supporting its development:
+
+| Network | Address |
+|---------|---------|
+| **USDT (BEP20)** | `0x8F540B43cC82d765bfe33c7B3da042B11708eCD1` |
+| **USDT (TRC20)** | `TGHxjiBeBkdJ7v2Vc4gqE9FYp7Nj1sgDkJ` |
+| **Litecoin (LTC)** | `ltc1q28g9qzpjs22x2uvds5tqp60w250fvjf2te234l` |
+
+Every contribution, no matter the size, helps keep this project alive. ❤️
+
+---
+
 ## ✨ Features
 
 ### 📦 File Processing
@@ -130,14 +144,49 @@ This opens an interactive management panel with a colored menu:
 
 ## 🔗 GitHub Cloud Storage Setup
 
-1. Go to [github.com](https://github.com) and sign up for a free account
-2. Navigate to **Settings → Developer settings → Personal access tokens → Fine-grained tokens**
-3. Click **Generate new token** with these settings:
-   - **Token name:** anything (e.g. `mega-leecher`)
-   - **Expiration:** No expiration
-   - **Repository access:** All repositories
-   - **Permissions → Contents:** Read and write
-4. Copy the token and send it to your bot via the **☁️ اتصال به گیتهاب** menu
+GitHub is a free online service that provides cloud storage for your files.
+
+### Step 1 — Create an Account
+1. Open your browser and go to [github.com](https://github.com)
+2. Click **Sign up** and enter your email, password and a username
+3. Complete the email verification steps
+
+> If you already have an account, just sign in.
+
+### Step 2 — Go to Settings
+1. Click your **profile picture** (top-right corner)
+2. Select **Settings** from the dropdown menu
+
+### Step 3 — Go to Developer Settings
+1. In Settings, scroll down to the bottom of the left sidebar
+2. Click **Developer settings** (last option)
+
+### Step 4 — Create a Token
+1. Click **Personal access tokens**
+2. Select **Fine-grained tokens**
+3. Click the green **Generate new token** button
+
+### Step 5 — Configure the Token
+| Field | Value |
+|-------|-------|
+| **Token name** | Any name, e.g. `mega-leecher` |
+| **Expiration** | No expiration |
+| **Repository access** | All repositories |
+
+### Step 6 — Set Permissions
+Scroll to **Repository permissions** and set the following to **Read and write**:
+
+- ✅ **Actions**
+- ✅ **Administration**
+- ✅ **Contents**
+- ✅ **Workflows**
+
+> If you don't see all permissions, click **Show more**.
+
+### Step 7 — Generate and Copy
+1. Scroll back to the top and click the green **Generate token** button
+2. **Copy the token immediately** — it is shown only once!
+3. Send the token to the bot via the **☁️ Connect GitHub** menu
 
 The bot will automatically create 3 repositories giving you **15GB total** free storage.
 
