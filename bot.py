@@ -603,9 +603,7 @@ def get_main_keyboard(user_id=None):
         [InlineKeyboardButton(T(uid, "btn_raw"),       callback_data="size_raw")],
         [InlineKeyboardButton(T(uid, "btn_full_rar"),  callback_data="size_full")],
         [InlineKeyboardButton(T(uid, "btn_multi_rar"), callback_data="size_multi")],
-        [InlineKeyboardButton(T(uid, "btn_19mb"),      callback_data="size_19"),
-         InlineKeyboardButton(T(uid, "btn_40mb"),      callback_data="size_40"),
-         InlineKeyboardButton(T(uid, "btn_900mb"),     callback_data="size_900")]
+        [InlineKeyboardButton(T(uid, "btn_split"),     callback_data="size_split")]
     ]
     if user_id and has_github_token(user_id):
         kb.append([InlineKeyboardButton(T(uid, "btn_github_upload"), callback_data="size_github")])
@@ -672,6 +670,9 @@ async def access_checker_middleware(client, message):
                STRINGS["en"]["btn_drive"],       STRINGS["en"]["btn_language"]]
     allowed = free_fa + free_en
     if chat_id in user_states and user_states[chat_id].get("admin_action"): return
+    # اجازه ورود به کاربران در حین وارد کردن اندازه split / Allow during split size input
+    if any(str(k).startswith(f"{chat_id}_") and v.get("awaiting_split_size")
+           for k, v in user_states.items()): return
     if text in allowed: return
     if f"gh_{chat_id}" in user_states: return
     if f"gd_{chat_id}" in user_states: return
@@ -1376,6 +1377,10 @@ async def size_callback(client, cq):
     if action == "raw": await execute_with_queue(client, chat_id, state_key)
     elif action == "github": await execute_with_queue(client, chat_id, state_key)
     elif action == "gdrive": await execute_with_queue(client, chat_id, state_key)
+    elif action == "split":
+        user_states[state_key]["action"] = "split"
+        user_states[state_key]["awaiting_split_size"] = True
+        await safe_edit(cq.message, T(user_id,"ask_split_size"))
     elif action == "multi":
         user_multi_tasks[chat_id] = {"state_key": state_key, "items": [user_states.pop(state_key)]}
         await safe_edit(cq.message, T(user_id,"first_file_added"),
@@ -1412,6 +1417,34 @@ async def password_callback(client, cq):
     else:
         user_states[state_key]["awaiting_password"] = True
         await client.send_message(chat_id, T(user_id,"set_password"), reply_markup=ForceReply(selective=True))
+
+@app.on_message(filters.text)
+async def get_split_size_input(client, message):
+    # دریافت اندازه split از کاربر / Receive split size from user
+    chat_id = message.chat.id; user_id = message.from_user.id
+    for key, data in list(user_states.items()):
+        if str(key).startswith(f"{chat_id}_") and data.get("awaiting_split_size"):
+            t = message.text.strip()
+            try:
+                size = int(t)
+                if not (19 <= size <= 900):
+                    raise ValueError
+            except ValueError:
+                await message.reply(T(user_id,"split_invalid"))
+                return
+            data["awaiting_split_size"] = False
+            data["split_size"] = size
+            # نمایش منوی رمز عبور / Show password menu
+            msg_id = str(key).split(f"{chat_id}_", 1)[1]
+            await message.reply(
+                T(user_id,"split_ready",size=size) + "\n\n" + T(user_id,"ask_password"),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(T(user_id,"btn_no_pass"),  callback_data=f"pass_none_{msg_id}")],
+                    [InlineKeyboardButton(T(user_id,"btn_set_pass"), callback_data=f"pass_set_{msg_id}")]
+                ])
+            )
+            return
+    message.continue_propagation()
 
 @app.on_message(filters.text & filters.reply)
 async def get_password_input(client, message):
@@ -1727,7 +1760,9 @@ async def core_processing(client, chat_id, data):
             await safe_edit(status_msg, T(chat_id,"compressing_rar"))
             archive_path = os.path.join(out_dir,"Mega-Leecher.rar")
             cmd = ["rar","a","-ep1","-m0","-rr5p",archive_path]
-            if action not in ["full","multi"]: cmd.append(f"-v{action}m")
+            if action == "split":
+                cmd.append(f"-v{data.get('split_size',100)}m")
+            elif action not in ["full","multi"]: cmd.append(f"-v{action}m")
             if password: cmd.append(f"-hp{password}")
             if action == "multi": cmd += [os.path.join(in_dir,f) for f in os.listdir(in_dir)]
             elif os.path.isdir(final_source): cmd.append(f"{final_source}/*")

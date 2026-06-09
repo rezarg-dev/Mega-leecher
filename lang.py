@@ -67,6 +67,11 @@ STRINGS = {
         "btn_19mb":          "پارت‌های ۱۹ مگ",
         "btn_40mb":          "پارت‌های ۴۰ مگ",
         "btn_900mb":         "پارت‌های ۹۰۰ مگ",
+        "btn_split":         "✂️ تقسیم‌بندی دلخواه",
+        "ask_split_size":    "✂️ اندازه هر پارت را به مگابایت وارد کنید:\n\n📌 محدوده مجاز: **۱۹ تا ۹۰۰** مگابایت\nمثال: `50`",
+        "split_invalid":     "❌ مقدار نامعتبر!\nعدد صحیح بین **۱۹** تا **۹۰۰** مگابایت وارد کنید:",
+        "split_ready":       "✂️ تقسیم‌بندی: **{size} MB** در هر پارت",
+
         "btn_github_upload": "☁️ آپلود به گیتهاب",
         "btn_drive_upload":  "📂 آپلود به گوگل درایو",
         "btn_no_pass":       "بدون رمز",
@@ -534,6 +539,11 @@ STRINGS = {
         "btn_19mb":          "19 MB Parts",
         "btn_40mb":          "40 MB Parts",
         "btn_900mb":         "900 MB Parts",
+        "btn_split":         "✂️ Custom Split",
+        "ask_split_size":    "✂️ Enter the size of each part in megabytes:\n\n📌 Allowed range: **19 to 900** MB\nExample: `50`",
+        "split_invalid":     "❌ Invalid value!\nEnter a whole number between **19** and **900** MB:",
+        "split_ready":       "✂️ Split: **{size} MB** per part",
+
         "btn_github_upload": "☁️ Upload to GitHub",
         "btn_drive_upload":  "📂 Upload to Google Drive",
         "btn_no_pass":       "No Password",
