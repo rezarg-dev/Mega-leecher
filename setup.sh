@@ -473,6 +473,12 @@ do_update() {
         return
     fi
 
+    # Update Python packages (yt-dlp and others)
+    echo -e "${CYAN}  --> Updating Python packages...${RESET}"
+    "$INSTALL_DIR/venv/bin/pip" install -q --upgrade yt-dlp pyrogram tgcrypto aiohttp httpx 2>/dev/null \
+        && echo -e "${GREEN}  [OK] Python packages updated${RESET}" \
+        || echo -e "${YELLOW}  [!!] Package update had warnings (non-critical)${RESET}"
+
     # Validate syntax before restarting
     if ! "$INSTALL_DIR/venv/bin/python" -m py_compile "$INSTALL_DIR/bot.py" 2>/dev/null; then
         echo -e "${RED}  [ERR] bot.py syntax check failed. Rolling back is not possible.${RESET}"
