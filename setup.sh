@@ -102,6 +102,16 @@ fi
 NODE_VER=$(node --version 2>/dev/null || echo "not found")
 success "Node.js $NODE_VER ready"
 
+info "Checking Deno (required for YouTube downloads)..."
+if ! command -v deno &>/dev/null && [[ ! -f "$HOME/.deno/bin/deno" ]]; then
+    info "Installing Deno..."
+    curl -fsSL https://deno.land/install.sh | sh > /dev/null 2>&1
+    echo 'export PATH="$HOME/.deno/bin:$PATH"' >> ~/.bashrc
+    export PATH="$HOME/.deno/bin:$PATH"
+fi
+DENO_VER=$(~/.deno/bin/deno --version 2>/dev/null | head -1 || echo "not found")
+success "Deno: $DENO_VER"
+
 # =============================================================
 #   STEP 2 — Install directory
 # =============================================================

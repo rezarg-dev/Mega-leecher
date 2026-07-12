@@ -41,6 +41,8 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 # مسیر کامل yt-dlp در venv / Full path to yt-dlp in venv
 YT_DLP = os.path.join(INSTALL_DIR, "venv", "bin", "yt-dlp")
+DENO_PATH = os.path.expanduser("~/.deno/bin/deno")
+YT_JS_RUNTIME = ["--js-runtimes", f"deno:{DENO_PATH}"] if os.path.exists(os.path.expanduser("~/.deno/bin/deno")) else []
 
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -1220,7 +1222,7 @@ async def handle_text_links(client, message):
                 cmd = [YT_DLP,
                        "--print", "%(title)s",
                        "--print", "%(formats.:.{height,filesize,filesize_approx,vcodec,acodec})j",
-                       "--js-runtimes","node","--remote-components","ejs:github","-q","--no-warnings"]
+                       *YT_JS_RUNTIME,"-q","--no-warnings"]
                 if os.path.exists(COOKIES_FILE): cmd += ["--cookies", COOKIES_FILE]
                 cmd.append(text)
                 proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -1610,9 +1612,9 @@ async def core_processing(client, chat_id, data):
                     await safe_edit(status_msg, T(chat_id,"yt_item_download",i=i), reply_markup=get_cancel_keyboard(chat_id))
                     qual = item.get("yt_quality","720")
                     if qual == "mp3":
-                        cmd = [YT_DLP,"-f","bestaudio[ext=m4a]/bestaudio","--js-runtimes","node","--remote-components","ejs:github","-o",p+".m4a"]
+                        cmd = [YT_DLP,"-f","bestaudio[ext=m4a]/bestaudio",*YT_JS_RUNTIME,"-o",p+".m4a"]
                     else:
-                        cmd = [YT_DLP,"-f",f"bestvideo[height<={qual}]+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4","--js-runtimes","node","--remote-components","ejs:github","-o",p+".mp4"]
+                        cmd = [YT_DLP,"-f",f"bestvideo[height<={qual}]+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_JS_RUNTIME,"-o",p+".mp4"]
                     if os.path.exists(COOKIES_FILE): cmd += ["--cookies",COOKIES_FILE]
                     cmd.append(item["source"])
                     if await run_yt_cmd(cmd, chat_id) != 0: raise ValueError("YOUTUBE_DOWNLOAD_FAILED")
@@ -1645,15 +1647,15 @@ async def core_processing(client, chat_id, data):
                 await safe_edit(status_msg, T(chat_id,"yt_downloading",quality=label), reply_markup=get_cancel_keyboard(chat_id))
                 if is_audio:
                     target_path = os.path.join(in_dir, data["file_name"]+".m4a")
-                    cmd = [YT_DLP,"-f","bestaudio[ext=m4a]/bestaudio","--js-runtimes","node","--remote-components","ejs:github","-o",target_path]
+                    cmd = [YT_DLP,"-f","bestaudio[ext=m4a]/bestaudio",*YT_JS_RUNTIME,"-o",target_path]
                 elif is_best:
                     target_path = os.path.join(in_dir, data["file_name"]+".mp4")
-                    cmd = [YT_DLP,"-f","bestvideo+bestaudio/best","--merge-output-format","mp4",
+                    cmd = [YT_DLP,"-f","bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_JS_RUNTIME,
                            "--extractor-args","instagram:direct=1;app_id=936619743392459",
                            "-o",target_path]
                 else:
                     target_path = os.path.join(in_dir, data["file_name"]+".mp4")
-                    cmd = [YT_DLP,"-f",f"bestvideo[height<={yt_quality}]+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4","--js-runtimes","node","--remote-components","ejs:github","-o",target_path]
+                    cmd = [YT_DLP,"-f",f"bestvideo[height<={yt_quality}]+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_JS_RUNTIME,"-o",target_path]
                 if os.path.exists(COOKIES_FILE): cmd += ["--cookies",COOKIES_FILE]
                 cmd.append(data["source"])
                 if await run_yt_cmd(cmd, chat_id) != 0:
