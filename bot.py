@@ -1242,12 +1242,13 @@ async def handle_text_links(client, message):
                        "--print", "%(title)s",
                        "--print", "%(duration)s",
                        "--print", "%(formats.:.{height,filesize,filesize_approx,tbr,vcodec,acodec})j",
+                       "--no-playlist",
                        *YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-q","--no-warnings"]
                 if os.path.exists(COOKIES_FILE): cmd += ["--cookies", COOKIES_FILE]
                 cmd.append(text)
                 proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                 try:
-                    out, err = await asyncio.wait_for(proc.communicate(), timeout=60)
+                    out, err = await asyncio.wait_for(proc.communicate(), timeout=180)
                 except asyncio.TimeoutError:
                     proc.kill()
                     raise Exception("timeout")
@@ -1641,10 +1642,10 @@ async def core_processing(client, chat_id, data):
                     await safe_edit(status_msg, T(chat_id,"yt_item_download",i=i), reply_markup=get_cancel_keyboard(chat_id))
                     qual = item.get("yt_quality","720")
                     if qual == "mp3":
-                        cmd = [YT_DLP,"-f","bestaudio/worst","-x","--audio-format","mp3",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",p+".mp3"]
+                        cmd = [YT_DLP,"-f","bestaudio/worst","-x","--audio-format","mp3","--no-playlist",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",p+".mp3"]
                     else:
                         vsel = "bestvideo[height>=2000]" if qual == "2160" else f"bestvideo[height<={qual}]"
-                        cmd = [YT_DLP,"-f",f"{vsel}+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",p+".mp4"]
+                        cmd = [YT_DLP,"-f",f"{vsel}+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4","--no-playlist",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",p+".mp4"]
                     if os.path.exists(COOKIES_FILE): cmd += ["--cookies",COOKIES_FILE]
                     cmd.append(item["source"])
                     if await run_yt_cmd(cmd, chat_id) != 0: raise ValueError("YOUTUBE_DOWNLOAD_FAILED")
@@ -1677,7 +1678,7 @@ async def core_processing(client, chat_id, data):
                 await safe_edit(status_msg, T(chat_id,"yt_downloading",quality=label), reply_markup=get_cancel_keyboard(chat_id))
                 if is_audio:
                     target_path = os.path.join(in_dir, data["file_name"]+".mp3")
-                    cmd = [YT_DLP,"-f","bestaudio/worst","-x","--audio-format","mp3",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",target_path]
+                    cmd = [YT_DLP,"-f","bestaudio/worst","-x","--audio-format","mp3","--no-playlist",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",target_path]
                 elif is_best:
                     target_path = os.path.join(in_dir, data["file_name"]+".mp4")
                     cmd = [YT_DLP,"-f","bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_JS_RUNTIME,
@@ -1686,7 +1687,7 @@ async def core_processing(client, chat_id, data):
                 else:
                     target_path = os.path.join(in_dir, data["file_name"]+".mp4")
                     vsel = "bestvideo[height>=2000]" if yt_quality == "2160" else f"bestvideo[height<={yt_quality}]"
-                    cmd = [YT_DLP,"-f",f"{vsel}+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",target_path]
+                    cmd = [YT_DLP,"-f",f"{vsel}+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4","--no-playlist",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",target_path]
                 if os.path.exists(COOKIES_FILE): cmd += ["--cookies",COOKIES_FILE]
                 cmd.append(data["source"])
                 if await run_yt_cmd(cmd, chat_id) != 0:
