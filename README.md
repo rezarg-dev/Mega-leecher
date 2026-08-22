@@ -37,7 +37,7 @@ Every contribution, no matter the size, helps keep this project alive. ❤️
 ## ✨ Features
 
 ### 📦 File Processing
-- **Split** files into 19MB, 40MB or 900MB parts
+- **Split** files into custom-sized parts (19-900MB, your choice)
 - **Compress** into RAR archives with optional password protection
 - **Send raw** files without any modification
 - **Multi-file archives** — combine multiple files into one RAR
@@ -45,7 +45,7 @@ Every contribution, no matter the size, helps keep this project alive. ❤️
 ### ⬇️ Downloading
 - **Direct links** — any HTTP/HTTPS download link up to 2GB
 - **Torrents** — magnet links or `.torrent` files
-- **YouTube** — download videos up to 1080p or audio-only (MP3)
+- **YouTube** — download videos up to 4K or audio-only (MP3)
 
 ### ☁️ Cloud Storage
 - **GitHub** — upload files and get direct download links (up to 15GB free with your own token)
@@ -68,6 +68,8 @@ Every contribution, no matter the size, helps keep this project alive. ❤️
 | Node.js | 20.x |
 | RAM | 1GB minimum (2GB recommended) |
 | Root access | Required |
+
+> ℹ️ A local **PO Token Provider** ([bgutil-ytdlp-pot-provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider)) is installed and run automatically by `setup.sh`. It's required for accurate YouTube quality/size detection and for downloading premium formats (1080p+, 4K).
 
 ---
 
@@ -277,13 +279,18 @@ cd /opt/mega-leecher
 python3 -m venv venv --system-site-packages
 
 # 4. Install Python dependencies
-./venv/bin/pip install pyrogram tgcrypto yt-dlp aiohttp httpx
+./venv/bin/pip install pyrogram tgcrypto yt-dlp bgutil-ytdlp-pot-provider aiohttp httpx
 
-# 5. Configure
+# 5. Set up the PO Token Provider (required for YouTube quality/size detection and 4K)
+git clone --branch 1.3.2 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git pot-provider
+cd pot-provider/server && npm ci && npx tsc && cd ..
+node pot-provider/server/build/main.js &   # keep this running (use systemd in production)
+
+# 6. Configure
 cp config.env.example config.env
 nano config.env
 
-# 6. Run
+# 7. Run
 ./venv/bin/python bot.py
 ```
 

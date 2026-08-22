@@ -21,7 +21,7 @@ STRINGS = {
             "🤖 این ربات یک ابزار حرفه‌ای برای پردازش و مدیریت فایل است.\n\n"
             "━━━━━━━━━━━━━━━━━━━\n"
             "📦 **قابلیت‌های پردازش فایل:**\n"
-            "• تقسیم فایل به پارت‌های ۱۹، ۴۰ یا ۹۰۰ مگابایتی\n"
+            "• تقسیم فایل به پارت‌های دلخواه بین ۱۹ تا ۹۰۰ مگابایت\n"
             "• فشرده‌سازی در قالب RAR با رمز عبور دلخواه\n"
             "• ارسال فایل خام بدون تغییر\n"
             "• پشتیبانی از فایل‌های فشرده رمزدار (بدون نیاز به رمز)\n\n"
@@ -111,7 +111,7 @@ STRINGS = {
             "⚙️ **بعد از دانلود چه کارهایی میشه کرد؟**\n"
             "• 📤 ارسال فایل خام (بدون هیچ تغییری)\n"
             "• 🗜 فشرده‌سازی در قالب **RAR** با یا بدون رمز عبور\n"
-            "• ✂️ تقسیم به پارت‌های **۱۹، ۴۰ یا ۹۰۰ مگابایتی**\n"
+            "• ✂️ تقسیم به پارت‌های دلخواه بین **۱۹ تا ۹۰۰ مگابایت**\n"
             "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم\n\n"
             "💡 **نکته:** اگه چند فایل از چند لینک مختلف داری، میتونی همه رو بفرستی و در یک آرشیو RAR واحد تحویل بگیری.",
 
@@ -129,7 +129,7 @@ STRINGS = {
             "⚙️ **بعد از دانلود چه کارهایی میشه کرد؟**\n"
             "• 📤 ارسال فایل خام (بدون تغییر)\n"
             "• 🗜 فشرده‌سازی **RAR** با رمز عبور دلخواه\n"
-            "• ✂️ تقسیم به پارت‌های **۱۹، ۴۰ یا ۹۰۰ مگابایتی**\n"
+            "• ✂️ تقسیم به پارت‌های دلخواه بین **۱۹ تا ۹۰۰ مگابایت**\n"
             "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم",
 
         # راهنمای فایل‌های تلگرام / Telegram files guide
@@ -144,7 +144,7 @@ STRINGS = {
             "⚙️ **بعد از دریافت چه کارهایی میشه کرد؟**\n"
             "• 📤 ارسال فایل خام (ویدیو به صورت استریم‌پذیر در تلگرام)\n"
             "• 🗜 فشرده‌سازی در قالب **RAR** با یا بدون رمز عبور\n"
-            "• ✂️ تقسیم به پارت‌های **۱۹، ۴۰ یا ۹۰۰ مگابایتی**\n"
+            "• ✂️ تقسیم به پارت‌های دلخواه بین **۱۹ تا ۹۰۰ مگابایت**\n"
             "• 📦 ترکیب چند فایل در **یک آرشیو چندفایلی**\n"
             "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم",
 
@@ -494,7 +494,7 @@ STRINGS = {
             "🤖 This bot is a professional tool for file processing and management.\n\n"
             "━━━━━━━━━━━━━━━━━━━\n"
             "📦 **File Processing:**\n"
-            "• Split files into 19MB, 40MB or 900MB parts\n"
+            "• Split files into custom-sized parts (19-900MB)\n"
             "• Compress into RAR archives with optional password\n"
             "• Send files raw without any modification\n"
             "• Password-protected archives supported (no password needed)\n\n"
@@ -584,7 +584,7 @@ STRINGS = {
             "⚙️ **What can you do after downloading?**\n"
             "• 📤 Send raw file (without any changes)\n"
             "• 🗜 Compress into **RAR** with or without a password\n"
-            "• ✂️ Split into **19, 40 or 900 MB** parts\n"
+            "• ✂️ Split into custom-sized parts (**19-900 MB**)\n"
             "• ☁️ Upload to **GitHub** and get a direct download link\n\n"
             "💡 **Tip:** If you have multiple files from different links, send them all and receive them in a single RAR archive.",
 
@@ -602,7 +602,7 @@ STRINGS = {
             "⚙️ **What can you do after downloading?**\n"
             "• 📤 Send raw file (without changes)\n"
             "• 🗜 **RAR** compression with optional password\n"
-            "• ✂️ Split into **19, 40 or 900 MB** parts\n"
+            "• ✂️ Split into custom-sized parts (**19-900 MB**)\n"
             "• ☁️ Upload to **GitHub** and get a direct download link",
 
         # Telegram files guide
@@ -617,7 +617,7 @@ STRINGS = {
             "⚙️ **What can you do after receiving?**\n"
             "• 📤 Send raw file (video as streamable in Telegram)\n"
             "• 🗜 Compress into **RAR** with or without a password\n"
-            "• ✂️ Split into **19, 40 or 900 MB** parts\n"
+            "• ✂️ Split into custom-sized parts (**19-900 MB**)\n"
             "• 📦 Combine multiple files into a **multi-file archive**\n"
             "• ☁️ Upload to **GitHub** and get a direct download link",
 
