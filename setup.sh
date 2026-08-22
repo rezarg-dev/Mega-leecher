@@ -112,6 +112,18 @@ fi
 DENO_VER=$(~/.deno/bin/deno --version 2>/dev/null | head -1 || echo "not found")
 success "Deno: $DENO_VER"
 
+info "Setting up YouTube PO Token Provider (needed for quality sizes and 4K/premium formats)..."
+POT_DIR="$INSTALL_DIR/pot-provider"
+if [[ ! -d "$POT_DIR" ]]; then
+    git clone --quiet --single-branch --branch 1.3.2 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git "$POT_DIR" > /dev/null 2>&1
+fi
+if [[ -d "$POT_DIR/server" ]]; then
+    (cd "$POT_DIR/server" && npm ci --silent > /dev/null 2>&1 && npx tsc > /dev/null 2>&1)
+    success "PO Token Provider built"
+else
+    warn "PO Token Provider clone failed — quality sizes and 4K may not work until this is set up manually."
+fi
+
 # =============================================================
 #   STEP 2 — Install directory
 # =============================================================
@@ -155,7 +167,7 @@ success "Virtual environment created"
 
 info "Installing Python packages (this may take a few minutes)..."
 "$INSTALL_DIR/venv/bin/pip" install -q --upgrade pip
-"$INSTALL_DIR/venv/bin/pip" install -q pyrogram tgcrypto yt-dlp aiohttp httpx 2>/dev/null
+"$INSTALL_DIR/venv/bin/pip" install -q pyrogram tgcrypto yt-dlp bgutil-ytdlp-pot-provider aiohttp httpx 2>/dev/null
 success "Python packages installed"
 
 # Verify key packages
@@ -252,12 +264,38 @@ fi  # end of config skip block
 # =============================================================
 section "Installing Systemd Service"
 
+cat > "/etc/systemd/system/bgutil-pot-provider.service" << POTSVC
+[Unit]
+Description=BgUtils PO Token Provider for yt-dlp
+Documentation=https://github.com/Brainicism/bgutil-ytdlp-pot-provider
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${INSTALL_DIR}/pot-provider/server
+ExecStart=/usr/bin/node build/main.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+POTSVC
+
+systemctl daemon-reload
+systemctl enable bgutil-pot-provider > /dev/null 2>&1
+systemctl restart bgutil-pot-provider > /dev/null 2>&1
+success "PO Token Provider service installed and started (port 4416)"
+
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" << SVC
 [Unit]
 Description=Mega Leecher Telegram Bot
 Documentation=https://github.com/rezarg-dev/Mega-leecher
-After=network.target network-online.target
+After=network.target network-online.target bgutil-pot-provider.service
 Wants=network-online.target
+Requires=bgutil-pot-provider.service
 
 [Service]
 Type=simple
@@ -531,7 +569,10 @@ do_uninstall() {
     [[ "$confirm_text" != "UNINSTALL" ]] && echo -e "${CYAN}  Cancelled${RESET}" && return
     systemctl stop    "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+    systemctl stop    bgutil-pot-provider 2>/dev/null || true
+    systemctl disable bgutil-pot-provider 2>/dev/null || true
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+    rm -f "/etc/systemd/system/bgutil-pot-provider.service"
     systemctl daemon-reload
     rm -rf "$INSTALL_DIR"
     rm -f "/usr/local/bin/mega-leecher"

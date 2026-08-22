@@ -43,6 +43,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 YT_DLP = os.path.join(INSTALL_DIR, "venv", "bin", "yt-dlp")
 DENO_PATH = os.path.expanduser("~/.deno/bin/deno")
 YT_JS_RUNTIME = ["--js-runtimes", f"deno:{DENO_PATH}"] if os.path.exists(os.path.expanduser("~/.deno/bin/deno")) else []
+YT_CLIENT_ARGS = ["--extractor-args", "youtube:player_client=tv,web,mweb"]  # چند کلاینت پشتیبان - اگه یکی بلاک شد بقیه امتحان میشه
 
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -564,19 +565,37 @@ def gh_find_repo(token, username, repos, file_size):
     return None
 
 # ================= توابع حجم یوتوب =================
-def get_quality_size(formats, max_height):
+def _fmt_bytes(f, duration):
+    # حجم واقعی رو میگیره، اگه نبود از روی بیت‌ریت و مدت‌زمان تخمین میزنه
+    fs = f.get('filesize') or f.get('filesize_approx')
+    if fs: return fs
+    tbr = f.get('tbr')
+    if tbr and duration:
+        return int(tbr * 1000 / 8 * duration)
+    return 0
+
+def get_quality_size(formats, max_height, duration=0):
     vf = [f for f in formats if f.get('vcodec','none') != 'none' and f.get('acodec','none') == 'none' and 0 < (f.get('height') or 0) <= max_height]
     af = [f for f in formats if f.get('acodec','none') != 'none' and f.get('vcodec','none') == 'none']
     if not vf: return 0
-    bv = max(vf, key=lambda f: (f.get('height',0), f.get('filesize') or f.get('filesize_approx') or 0))
-    ba = max(af, key=lambda f: f.get('filesize') or f.get('filesize_approx') or 0) if af else None
-    return (bv.get('filesize') or bv.get('filesize_approx') or 0) + ((ba.get('filesize') or ba.get('filesize_approx') or 0) if ba else 0)
+    bv = max(vf, key=lambda f: (f.get('height',0), _fmt_bytes(f,duration)))
+    ba = max(af, key=lambda f: _fmt_bytes(f,duration)) if af else None
+    return _fmt_bytes(bv,duration) + (_fmt_bytes(ba,duration) if ba else 0)
 
-def get_audio_size(formats):
+def get_audio_size(formats, duration=0):
     af = [f for f in formats if f.get('acodec','none') != 'none' and f.get('vcodec','none') == 'none']
     if not af: return 0
-    b = max(af, key=lambda f: f.get('filesize') or f.get('filesize_approx') or 0)
-    return b.get('filesize') or b.get('filesize_approx') or 0
+    b = max(af, key=lambda f: _fmt_bytes(f,duration))
+    return _fmt_bytes(b,duration)
+
+def get_4k_size(formats, duration=0):
+    # فقط فرمت‌هایی که واقعاً ارتفاع ۴K یا بالاتر دارن - برمیگردونه None اگه اصلاً موجود نباشه
+    vf = [f for f in formats if f.get('vcodec','none') != 'none' and f.get('acodec','none') == 'none' and (f.get('height') or 0) >= 2000]
+    if not vf: return None
+    af = [f for f in formats if f.get('acodec','none') != 'none' and f.get('vcodec','none') == 'none']
+    bv = max(vf, key=lambda f: (f.get('height',0), _fmt_bytes(f,duration)))
+    ba = max(af, key=lambda f: _fmt_bytes(f,duration)) if af else None
+    return _fmt_bytes(bv,duration) + (_fmt_bytes(ba,duration) if ba else 0)
 
 def fmt_size(s):
     if not s: return "نامشخص"
@@ -1221,8 +1240,9 @@ async def handle_text_links(client, message):
                 # فقط فیلدهای مورد نیاز — بسیار سبک‌تر از --dump-json
                 cmd = [YT_DLP,
                        "--print", "%(title)s",
-                       "--print", "%(formats.:.{height,filesize,filesize_approx,vcodec,acodec})j",
-                       *YT_JS_RUNTIME,"-q","--no-warnings"]
+                       "--print", "%(duration)s",
+                       "--print", "%(formats.:.{height,filesize,filesize_approx,tbr,vcodec,acodec})j",
+                       *YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-q","--no-warnings"]
                 if os.path.exists(COOKIES_FILE): cmd += ["--cookies", COOKIES_FILE]
                 cmd.append(text)
                 proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -1234,22 +1254,28 @@ async def handle_text_links(client, message):
                 if proc.returncode != 0: raise Exception(err.decode()[:200])
                 lines = out.decode().strip().split('\n')
                 title = lines[0] if lines else 'youtube_video'
-                formats = json.loads(lines[1]) if len(lines) > 1 else []
-                return title, formats
+                try: duration = float(lines[1]) if len(lines) > 1 and lines[1] not in ('', 'NA') else 0
+                except ValueError: duration = 0
+                formats = json.loads(lines[2]) if len(lines) > 2 else []
+                return title, duration, formats
 
-            title, formats = await extract_info()
+            title, duration, formats = await extract_info()
             file_name = "".join(c for c in title if c.isalnum() or c in (' ','.','_','-')).strip()
-            s360=fmt_size(get_quality_size(formats,360)); s480=fmt_size(get_quality_size(formats,480))
-            s720=fmt_size(get_quality_size(formats,720)); s1080=fmt_size(get_quality_size(formats,1080))
-            saudio=fmt_size(get_audio_size(formats))
+            s360=fmt_size(get_quality_size(formats,360,duration)); s480=fmt_size(get_quality_size(formats,480,duration))
+            s720=fmt_size(get_quality_size(formats,720,duration)); s1080=fmt_size(get_quality_size(formats,1080,duration))
+            size_2160 = get_4k_size(formats,duration)
+            has_4k = size_2160 is not None
+            s2160 = fmt_size(size_2160) if has_4k else T(user_id,"quality_not_available")
+            saudio=fmt_size(get_audio_size(formats,duration))
             del formats  # آزاد کردن حافظه
             state_key = f"{chat_id}_{bot_msg.id}"
-            user_states[state_key] = {"type":"youtube_pending","source":text,"file_name":file_name}
+            user_states[state_key] = {"type":"youtube_pending","source":text,"file_name":file_name,"has_4k":has_4k}
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"🎥 360p ({s360})",callback_data="ytqual_360"),
                  InlineKeyboardButton(f"🎥 480p ({s480})",callback_data="ytqual_480")],
                 [InlineKeyboardButton(f"🎥 720p ({s720})",callback_data="ytqual_720"),
                  InlineKeyboardButton(f"🎥 1080p ({s1080})",callback_data="ytqual_1080")],
+                [InlineKeyboardButton(f"🎥 4K ({s2160})",callback_data="ytqual_2160")],
                 [InlineKeyboardButton(T(user_id,"btn_audio_only",size=saudio),callback_data="ytqual_mp3")]
             ])
             await safe_final_edit(message, bot_msg,
@@ -1286,11 +1312,14 @@ async def handle_text_links(client, message):
 
 @app.on_callback_query(filters.regex("^ytqual_"))
 async def yt_quality_callback(client, cq):
-    await cq.answer()
     chat_id = cq.message.chat.id; user_id = cq.from_user.id
     quality = cq.data.split("_")[1]; state_key = f"{chat_id}_{cq.message.id}"
     if state_key not in user_states or user_states[state_key].get("type") != "youtube_pending":
+        await cq.answer()
         await safe_edit(cq.message, T(user_id,"yt_request_expired")); return
+    if quality == "2160" and not user_states[state_key].get("has_4k"):
+        await cq.answer(T(user_id,"quality_not_available"), show_alert=True); return
+    await cq.answer()
     allowed, _ = check_yt_quota(user_id)
     if not allowed:
         await safe_edit(cq.message, T(user_id,"yt_quota_exceeded_cb")); return
@@ -1612,9 +1641,10 @@ async def core_processing(client, chat_id, data):
                     await safe_edit(status_msg, T(chat_id,"yt_item_download",i=i), reply_markup=get_cancel_keyboard(chat_id))
                     qual = item.get("yt_quality","720")
                     if qual == "mp3":
-                        cmd = [YT_DLP,"-f","bestaudio[ext=m4a]/bestaudio",*YT_JS_RUNTIME,"-o",p+".m4a"]
+                        cmd = [YT_DLP,"-f","bestaudio/worst","-x","--audio-format","mp3",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",p+".mp3"]
                     else:
-                        cmd = [YT_DLP,"-f",f"bestvideo[height<={qual}]+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_JS_RUNTIME,"-o",p+".mp4"]
+                        vsel = "bestvideo[height>=2000]" if qual == "2160" else f"bestvideo[height<={qual}]"
+                        cmd = [YT_DLP,"-f",f"{vsel}+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",p+".mp4"]
                     if os.path.exists(COOKIES_FILE): cmd += ["--cookies",COOKIES_FILE]
                     cmd.append(item["source"])
                     if await run_yt_cmd(cmd, chat_id) != 0: raise ValueError("YOUTUBE_DOWNLOAD_FAILED")
@@ -1646,8 +1676,8 @@ async def core_processing(client, chat_id, data):
                 label = T(chat_id,"audio_only_label") if is_audio else f"{yt_quality}p"
                 await safe_edit(status_msg, T(chat_id,"yt_downloading",quality=label), reply_markup=get_cancel_keyboard(chat_id))
                 if is_audio:
-                    target_path = os.path.join(in_dir, data["file_name"]+".m4a")
-                    cmd = [YT_DLP,"-f","bestaudio[ext=m4a]/bestaudio",*YT_JS_RUNTIME,"-o",target_path]
+                    target_path = os.path.join(in_dir, data["file_name"]+".mp3")
+                    cmd = [YT_DLP,"-f","bestaudio/worst","-x","--audio-format","mp3",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",target_path]
                 elif is_best:
                     target_path = os.path.join(in_dir, data["file_name"]+".mp4")
                     cmd = [YT_DLP,"-f","bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_JS_RUNTIME,
@@ -1655,7 +1685,8 @@ async def core_processing(client, chat_id, data):
                            "-o",target_path]
                 else:
                     target_path = os.path.join(in_dir, data["file_name"]+".mp4")
-                    cmd = [YT_DLP,"-f",f"bestvideo[height<={yt_quality}]+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_JS_RUNTIME,"-o",target_path]
+                    vsel = "bestvideo[height>=2000]" if yt_quality == "2160" else f"bestvideo[height<={yt_quality}]"
+                    cmd = [YT_DLP,"-f",f"{vsel}+bestaudio/bestvideo+bestaudio/best","--merge-output-format","mp4",*YT_CLIENT_ARGS,*YT_JS_RUNTIME,"-o",target_path]
                 if os.path.exists(COOKIES_FILE): cmd += ["--cookies",COOKIES_FILE]
                 cmd.append(data["source"])
                 if await run_yt_cmd(cmd, chat_id) != 0:

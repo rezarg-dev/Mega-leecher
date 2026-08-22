@@ -29,7 +29,7 @@ STRINGS = {
             "⬇️ **قابلیت‌های دانلود:**\n"
             "• دانلود از **لینک مستقیم**\n"
             "• دانلود از **تورنت** (مگنت یا فایل .torrent)\n"
-            "• دانلود از **یوتوب** با کیفیت‌های مختلف تا 1080p\n"
+            "• دانلود از **یوتوب** با کیفیت‌های مختلف تا 4K\n"
             "• دانلود فقط صدا از یوتوب (MP3)\n\n"
             "━━━━━━━━━━━━━━━━━━━\n"
             "☁️ **فضای ابری رایگان:**\n"
@@ -152,7 +152,7 @@ STRINGS = {
         "guide_youtube":
             "**🎬 راهنمای دانلود از یوتوب:**\n\n"
             "کافیه لینک ویدیوی یوتوب رو مستقیم داخل چت بفرستید.\n\n"
-            "📌 **کیفیت‌های قابل دانلود:**\n• 360p • 480p • 720p • 1080p • 🎵 فقط صدا\n\n"
+            "📌 **کیفیت‌های قابل دانلود:**\n• 360p • 480p • 720p • 1080p • 4K • 🎵 فقط صدا\n\n"
             "⚡️ حجم تقریبی هر کیفیت نمایش داده میشه.\n"
             "🔢 سهمیه روزانه: **۱۰ ویدیو** در هر ۲۴ ساعت.",
 
@@ -468,6 +468,7 @@ STRINGS = {
         "sending_file":      "ارسال فایل",
         "btn_audio_only":    "🎵 فقط صدا ({size})",
         "audio_only_label":  "صدا",
+        "quality_not_available": "❌ ناموجود",
         "torrent_dl_action": "دانلود تورنت",
 
         # اینستاگرام / Instagram
@@ -501,7 +502,7 @@ STRINGS = {
             "⬇️ **Download Features:**\n"
             "• Download from **direct links**\n"
             "• Download from **torrents** (magnet or .torrent file)\n"
-            "• Download from **YouTube** up to 1080p\n"
+            "• Download from **YouTube** up to 4K\n"
             "• Audio-only download from YouTube (MP3)\n\n"
             "━━━━━━━━━━━━━━━━━━━\n"
             "☁️ **Free Cloud Storage:**\n"
@@ -624,7 +625,7 @@ STRINGS = {
         "guide_youtube":
             "**🎬 YouTube Download Guide:**\n\n"
             "Just send the YouTube video link directly in chat.\n\n"
-            "📌 **Available qualities:**\n• 360p • 480p • 720p • 1080p • 🎵 Audio only\n\n"
+            "📌 **Available qualities:**\n• 360p • 480p • 720p • 1080p • 4K • 🎵 Audio only\n\n"
             "⚡️ Approximate size for each quality is shown.\n"
             "🔢 Daily quota: **10 videos** per 24 hours.",
 
@@ -939,6 +940,7 @@ STRINGS = {
         "sending_file":      "Sending file",
         "btn_audio_only":    "🎵 Audio only ({size})",
         "audio_only_label":  "Audio",
+        "quality_not_available": "❌ Not available",
         "torrent_dl_action": "Torrent download",
 
         # Instagram
