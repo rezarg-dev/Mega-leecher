@@ -3,7 +3,8 @@ pyrogram>=2.0.106
 tgcrypto
 aiohttp>=3.8
 httpx>=0.24
-yt-dlp
+# The "default" extra brings yt-dlp-ejs, the solver for YouTube's JavaScript challenges.
+yt-dlp[default]
 
 # Keep this pin: setup.sh builds the token server from the very same version.
 bgutil-ytdlp-pot-provider==2.0.2

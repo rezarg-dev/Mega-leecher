@@ -19,8 +19,6 @@ log = logging.getLogger(__name__)
 # (or whether) pip dropped the `yt-dlp` launcher script.
 YT_DLP = [sys.executable, "-m", "yt_dlp"]
 
-# Several player clients: if YouTube blocks one, the next is tried.
-CLIENT_ARGS = ["--extractor-args", "youtube:player_client=tv,web,mweb"]
 INSTAGRAM_ARGS = ["--extractor-args", "instagram:direct=1;app_id=936619743392459"]
 
 INFO_TIMEOUT = 180
@@ -124,7 +122,7 @@ async def fetch_info(url):
         "--print", "%(title)j",
         "--print", "%(duration)j",
         "--print", "%(formats.:.{height,filesize,filesize_approx,tbr,vcodec,acodec})j",
-        "--no-playlist", *CLIENT_ARGS, *_js_runtime(), "-q", "--no-warnings",
+        "--no-playlist", *_js_runtime(), "-q", "--no-warnings",
         *_cookies(workdir), url,
     ]
     try:
@@ -163,7 +161,7 @@ def _format_args(item):
     else:
         video = "bestvideo[height>=2000]" if item.quality == "2160" else f"bestvideo[height<={item.quality}]"
         selection = ["-f", f"{video}+bestaudio/bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
-    return [*selection, "--no-playlist", *CLIENT_ARGS, *_js_runtime()]
+    return [*selection, "--no-playlist", *_js_runtime()]
 
 
 async def download(job, item, directory, stem):

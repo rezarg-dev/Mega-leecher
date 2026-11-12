@@ -229,7 +229,7 @@ install_python_packages() {
     quiet "$py" -m pip install --upgrade -r "$INSTALL_DIR/requirements.txt"
 
     local pkg
-    for pkg in pyrogram tgcrypto aiohttp httpx yt_dlp libtorrent; do
+    for pkg in pyrogram tgcrypto aiohttp httpx yt_dlp yt_dlp_ejs libtorrent; do
         "$py" -c "import $pkg" >> "$LOG_FILE" 2>&1 \
             || error "Python package '$pkg' cannot be imported. See $LOG_FILE"
     done
