@@ -1,0 +1,9 @@
+# libtorrent is not listed here: it comes from the system package python3-libtorrent.
+pyrogram>=2.0.106
+tgcrypto
+aiohttp>=3.8
+httpx>=0.24
+yt-dlp
+
+# Keep this pin: setup.sh builds the token server from the very same version.
+bgutil-ytdlp-pot-provider==2.0.2

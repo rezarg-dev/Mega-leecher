@@ -1,21 +1,19 @@
-# ===============================================================
-# lang.py — Bilingual strings for Mega Leecher Bot
-# زبان‌ها: فارسی (fa) | انگلیسی (en)
-# Languages: Persian (fa) | English (en)
-# ===============================================================
+"""All user-facing text, in Persian (fa) and English (en)."""
+
+DEFAULT_LANG = "fa"
 
 STRINGS = {
 
-    # ── زبان فارسی / Persian ──────────────────────────────────
+    # ── Persian ──────────────────────────────────────────────────
     "fa": {
 
-        # انتخاب زبان / Language selection
+        # Language selection
         "choose_language":
             "🌐 **زبان مورد نظر خود را انتخاب کنید:**\n\nPlease choose your language:",
         "lang_changed_fa":  "✅ زبان به **فارسی** تغییر یافت.",
         "lang_changed_en":  "✅ Language changed to **English**.",
 
-        # خوش‌آمدگویی / Welcome
+        # Welcome
         "welcome":
             "👋 **خوش آمدید!**\n\n"
             "🤖 این ربات یک ابزار حرفه‌ای برای پردازش و مدیریت فایل است.\n\n"
@@ -40,7 +38,7 @@ STRINGS = {
             "━━━━━━━━━━━━━━━━━━━\n"
             "📋 برای شروع از منوی پایین استفاده کنید 👇",
 
-        # دکمه‌های منوی اصلی / Main reply menu buttons
+        # Main reply menu buttons
         "btn_direct_link":   "🌐 راهنمای لینک مستقیم",
         "btn_torrent":       "🧲 راهنمای تورنت",
         "btn_tg_files":      "📁 راهنمای کار با فایل‌های تلگرامی",
@@ -51,22 +49,18 @@ STRINGS = {
         "btn_language":      "🌐 تغییر زبان",
         "menu_placeholder":  "انتخاب کنید...",
 
-        # دکمه‌های ادمین / Admin buttons
+        # Admin buttons
         "btn_add_user":      "➕ افزودن کاربر",
         "btn_del_user":      "➖ حذف کاربر",
         "btn_add_yt_user":   "➕ افزودن کاربر یوتوب",
         "btn_user_list":     "📋 لیست کاربران",
         "btn_clean_bot":     "🧹 پاکسازی ربات",
-        "btn_cancel_fa":     "انصراف",
 
-        # دکمه‌های اینلاین / Inline keyboard buttons
+        # Inline keyboard buttons
         "btn_cancel_op":     "❌ لغو عملیات",
         "btn_raw":           "ارسال فایل خام (بدون تغییر)",
         "btn_full_rar":      "ارسال به صورت تک فایل RAR",
         "btn_multi_rar":     "ایجاد آرشیو چند فایلی",
-        "btn_19mb":          "پارت‌های ۱۹ مگ",
-        "btn_40mb":          "پارت‌های ۴۰ مگ",
-        "btn_900mb":         "پارت‌های ۹۰۰ مگ",
         "btn_split":         "✂️ تقسیم‌بندی دلخواه",
         "ask_split_size":    "✂️ اندازه هر پارت را به مگابایت وارد کنید:\n\n📌 محدوده مجاز: **۱۹ تا ۹۰۰** مگابایت\nمثال: `50`",
         "split_invalid":     "❌ مقدار نامعتبر!\nعدد صحیح بین **۱۹** تا **۹۰۰** مگابایت وارد کنید:",
@@ -79,20 +73,20 @@ STRINGS = {
         "btn_start_archive": "شروع آرشیو",
         "btn_start_op":      "شروع عملیات",
 
-        # نوار پیشرفت / Progress bar
+        # Progress bar
         "progress":
             "وضعیت: {action}\n[{bar}] {pct:.1f}%\nسرعت: {speed:.1f} KB/s\n"
             "حجم: {cur:.1f}MB از {total:.1f}MB",
         "progress_unknown_size":
             "وضعیت: {action}\n📥 {cur:.1f} MB دریافت شد...",
 
-        # پیام‌های کنترل دسترسی / Access control messages
+        # Access control
         "no_subscription":
             "⛔️ **شما هیچ اشتراک فعالی ندارید!**\n\nبرای خرید:\n👤 {purchase}\n🆔 `{uid}`",
         "feature_needs_sub":
             "⛔️ این قابلیت فقط برای کاربران دارای اشتراک است.\n👤 {purchase}",
 
-        # پیام‌های عمومی / General messages
+        # General messages
         "cancelled":         "🚫 عملیات لغو شد.",
         "size_limit":        "❌ فایل‌های بیشتر از 2 گیگابایت مجاز نیست.",
         "processing_start":  "در حال شروع پردازش...",
@@ -100,7 +94,7 @@ STRINGS = {
         "done":              "✅ عملیات با موفقیت تمام شد.",
         "error_generic":     "❌ خطا: `{e}`",
 
-        # راهنمای لینک مستقیم / Direct link guide
+        # Direct link guide
         "guide_direct":
             "**🌐 راهنمای دانلود از لینک مستقیم:**\n\n"
             "کافیه لینک دانلود فایل رو مستقیم داخل چت بفرستید — ربات بقیه کار رو میکنه.\n\n"
@@ -115,7 +109,7 @@ STRINGS = {
             "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم\n\n"
             "💡 **نکته:** اگه چند فایل از چند لینک مختلف داری، میتونی همه رو بفرستی و در یک آرشیو RAR واحد تحویل بگیری.",
 
-        # راهنمای تورنت / Torrent guide
+        # Torrent guide
         "guide_torrent":
             "**🧲 راهنمای دانلود تورنت:**\n\n"
             "دو روش برای ارسال تورنت وجود داره:\n\n"
@@ -132,7 +126,7 @@ STRINGS = {
             "• ✂️ تقسیم به پارت‌های دلخواه بین **۱۹ تا ۹۰۰ مگابایت**\n"
             "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم",
 
-        # راهنمای فایل‌های تلگرام / Telegram files guide
+        # Telegram files guide
         "guide_tg_files":
             "**📁 راهنمای کار با فایل‌های تلگرامی:**\n\n"
             "فایل، ویدیو، موزیک یا هر محتوایی رو که در تلگرام دارید **فوروارد** کنید یا مستقیم **آپلود** کنید.\n\n"
@@ -148,7 +142,7 @@ STRINGS = {
             "• 📦 ترکیب چند فایل در **یک آرشیو چندفایلی**\n"
             "• ☁️ آپلود به **گیتهاب** و دریافت لینک دانلود مستقیم",
 
-        # راهنمای یوتوب / YouTube guide
+        # YouTube guide
         "guide_youtube":
             "**🎬 راهنمای دانلود از یوتوب:**\n\n"
             "کافیه لینک ویدیوی یوتوب رو مستقیم داخل چت بفرستید.\n\n"
@@ -156,14 +150,14 @@ STRINGS = {
             "⚡️ حجم تقریبی هر کیفیت نمایش داده میشه.\n"
             "🔢 سهمیه روزانه: **۱۰ ویدیو** در هر ۲۴ ساعت.",
 
-        # اشتراک / Subscription
+        # Subscription
         "sub_active":        "✅ **شما دارای اشتراک فعال هستید.**\n\n⏳ روزهای باقیمانده: **{days} روز**",
         "sub_buy":           "⛔️ جهت خرید اشتراک به {purchase} پیام دهید.\n🆔 آیدی عددی شما: `{uid}`",
         "sub_renew":         "⛔️ جهت خرید یا تمدید به {purchase} پیام دهید.\n🆔 آیدی عددی شما: `{uid}`",
         "no_yt_sub":         "⛔️ شما اشتراک ویژه یوتوب ندارید.",
         "yt_quota_exceeded": "⛔️ **سهمیه روزانه تمام شده!**\nبه سقف ۱۰ ویدیو در ۲۴ ساعت رسیده‌اید.",
 
-        # هندلر فایل‌ها / File handler
+        # File handler
         "file_too_large":    "❌ فایل‌های بیشتر از 2 گیگابایت مجاز نیست.",
         "processing":        "⏳ در حال پردازش...",
         "file_added_multi":  "افزوده شد. (مجموع: {count})",
@@ -173,13 +167,13 @@ STRINGS = {
         "set_password":      "رمز را بفرستید:",
         "first_file_added":  "فایل اول اضافه شد. بعدی‌ها را فوروارد کنید.",
 
-        # لینک مستقیم / Direct URL
+        # Direct URL
         "extracting_link":   "⏳ در حال استخراج لینک...",
         "link_too_large":    "❌ حجم فایل بیشتر از 2 گیگابایت است.",
         "no_direct_link":    "❌ لینک مستقیم یافت نشد.",
         "file_name_prompt":  "نام فایل: `{name}`",
 
-        # یوتوب / YouTube
+        # YouTube
         "yt_extracting":     "⏳ در حال استخراج اطلاعات...",
         "yt_quality_prompt": "🎬 **{title}**\n\n🔢 سهمیه باقیمانده: **{remaining} ویدیو**\n\nکیفیت را انتخاب کنید:",
         "yt_file_ready":     "فایل یوتوب: `{name}`\nکیفیت: **{quality}**",
@@ -187,7 +181,7 @@ STRINGS = {
         "yt_quota_exceeded_cb": "⛔️ سهمیه روزانه تمام شده!",
         "yt_request_expired": "❌ درخواست منقضی شده است.",
 
-        # تورنت / Torrent
+        # Torrent
         "torrent_metadata":  "در حال دریافت متادیتا...",
         "torrent_cancelled": "🚫 لغو شد.",
         "torrent_too_large": "❌ حجم تورنت بیشتر از 2 گیگابایت است.",
@@ -198,7 +192,7 @@ STRINGS = {
             "سید: {seeds} | پیر: {peers}",
         "torrent_ready":     "✅ آماده پردازش.",
 
-        # core_processing
+        # Processing
         "preparing_file":    "📦 در حال آماده‌سازی فایل...",
         "sending":           "در حال ارسال...",
         "compressing_rar":   "در حال بسته‌بندی RAR...",
@@ -206,7 +200,7 @@ STRINGS = {
         "final_file":        "فایل نهایی",
         "yt_item_download":  "دانلود از یوتوب (آیتم {i})...",
 
-        # گیتهاب — پیام‌های آپلود / GitHub upload messages
+        # GitHub upload messages
         "gh_preparing":      "☁️ در حال آماده‌سازی...",
         "gh_uploading":
             "☁️ **آپلود به گیتهاب...**\n[{bar}] {pct}%\nپارت {i} از {n}  ({mb:.1f} MB)",
@@ -230,7 +224,7 @@ STRINGS = {
         "gh_quota_core":     "⛔️ سهمیه روزانه آپلود به گیتهاب تمام شده!\nهر کاربر روزانه {limit} آپلود مجاز است.",
         "gh_clear_repo":     "🗑 در حال پاکسازی ریپازیتوری {i} از {total}...",
 
-        # گیتهاب — منو / GitHub menu
+        # GitHub menu
         "gh_menu_title":
             "☁️ **مدیریت فضای ابری گیتهاب**\n\nوضعیت: {status}\n\n"
             "با اتصال به گیتهاب فایل‌ها را رایگان ذخیره کرده و لینک مستقیم دریافت کنید.\n\n"
@@ -247,7 +241,6 @@ STRINGS = {
         "gh_btn_space":      "📊 فضای باقیمانده",
         "gh_btn_clear":      "🗑 پاکسازی همه فایل‌ها",
 
-        "gh_guide_text":    "📖 **راهنمای گام به گام دریافت توکن گیتهاب**",
         "gh_guide_page1":
             "📖 **راهنمای گام به گام دریافت توکن گیتهاب**\n\n"
             "گیتهاب یک سرویس رایگان آنلاین است که به شما فضای ذخیره‌سازی ابری می‌دهد.\n\n"
@@ -333,7 +326,7 @@ STRINGS = {
             "💾 ظرفیت: تا {cap} گیگابایت\n\n"
             "گزینه **☁️ آپلود به گیتهاب** در منوی پردازش فایل نمایش داده می‌شود.",
 
-        # گوگل درایو — منو / Drive menu
+        # Google Drive menu
         "gd_menu_title":
             "📂 **مدیریت گوگل درایو**\n\nوضعیت: {status}\n\n"
             "با اتصال به گوگل درایو فایل‌ها را آپلود کرده و لینک دانلود مستقیم دریافت کنید.\n\n"
@@ -418,7 +411,7 @@ STRINGS = {
             "گزینه **📂 آپلود به گوگل درایو** در منوی پردازش فایل نمایش داده می‌شود.",
         "gd_code_error":     "❌ خطا: `{e}`",
 
-        # گوگل درایو — آپلود / Drive upload
+        # Drive upload
         "gd_uploading":
             "📂 **آپلود به گوگل درایو...**\n[{bar}] {pct}%\n"
             "{sent:.1f} MB از {total:.1f} MB",
@@ -442,7 +435,7 @@ STRINGS = {
         "gd_quota_line":     "🔢 سهمیه باقیمانده امروز: **{remaining} آپلود**\n",
         "gd_folder_create_error": "خطا در ساخت پوشه: {code}",
 
-        # پنل ادمین / Admin panel
+        # Admin panel
         "admin_no_users":    "هیچ کاربر فعالی وجود ندارد.",
         "admin_user_list_title": "📋 **لیست کاربران** — صفحه {page} از {total_pages} (جمع: {total} نفر)\n",
         "admin_user_entry":  "**{i}.** 👤 {uname}\n  🆔 `{uid}`\n  ⏳ اشتراک: **{rd} روز**\n  🎬 یوتوب: **{ytd} روز**\n━━━━━━━━━━━━━━━━━\n",
@@ -461,7 +454,7 @@ STRINGS = {
         "admin_deleted":     "✅ دسترسی لغو شد.",
         "admin_not_found":   "❌ یافت نشد.",
 
-        # action texts در progress bar / progress bar action texts
+        # Progress bar labels
         "receiving_file":    "دریافت فایل",
         "sending_video":     "ارسال ویدیو",
         "sending_audio":     "ارسال صدا",
@@ -469,17 +462,42 @@ STRINGS = {
         "btn_audio_only":    "🎵 فقط صدا ({size})",
         "audio_only_label":  "صدا",
         "quality_not_available": "❌ ناموجود",
-        "torrent_dl_action": "دانلود تورنت",
 
-        # اینستاگرام / Instagram
+        # Instagram
         "ig_received":       "📸 پست اینستاگرام دریافت شد.",
         "ig_select_action":  "📸 **پست اینستاگرام**\n\nنحوه ارسال را انتخاب کنید:",
 
-        # MITM
+        # Drive downloader app
         "mitm_caption":      "📲 **MITM Drive Downloader**\nاگر دانلود از مرورگر کار نکرد از این اپ استفاده کنید",
+
+        # Shared bits
+        "unknown":           "نامشخص",
+        "receiving_link":    "دریافت لینک {i}",
+        "cancel_requested":  "⚠️ درخواست لغو ثبت شد.",
+        "admin_invalid_number": "❌ عدد وارد کنید.",
+
+        # Errors
+        "empty_file":        "❌ فایل خالی است.",
+        "url_not_allowed":   "❌ این لینک مجاز نیست.",
+        "no_disk_space":     "❌ فضای دیسک سرور کافی نیست. کمی بعد دوباره تلاش کنید.",
+        "tg_too_large":
+            "❌ حجم این فایل برای ارسال در تلگرام بیشتر از ۲ گیگابایت است.\n"
+            "از گزینه تقسیم‌بندی استفاده کنید.",
+        "tg_download_failed": "❌ دریافت فایل از تلگرام ناموفق بود. دوباره ارسال کنید.",
+        "rar_failed":        "❌ بسته‌بندی RAR ناموفق بود.",
+        "yt_download_failed": "❌ دانلود از یوتوب ناموفق بود.",
+        "ig_download_failed": "❌ دانلود از اینستاگرام ناموفق بود.",
+        "torrent_invalid":   "❌ فایل تورنت یا لینک مگنت نامعتبر است.",
+        "torrent_metadata_timeout": "❌ متادیتای تورنت دریافت نشد. احتمالاً تورنت سید ندارد.",
+        "gh_size_limit":
+            "❌ **حجم فایل بیشتر از ۲ گیگابایت است ({size:.2f} GB)**\n"
+            "آپلود به گیتهاب برای فایل‌های تا ۲ گیگابایت مجاز است.",
+        "gh_token_invalid":  "توکن نامعتبر است (کد: {code})",
+        "gh_push_failed":    "git push ناموفق پارت {i} (کد {code}): {err}",
+        "gd_code_rejected":  "کد نامعتبر است ({code}): {detail}",
     },
 
-    # ── زبان انگلیسی / English ────────────────────────────────
+    # ── English ──────────────────────────────────────────────────
     "en": {
 
         # Language selection
@@ -530,16 +548,12 @@ STRINGS = {
         "btn_add_yt_user":   "➕ Add YouTube User",
         "btn_user_list":     "📋 User List",
         "btn_clean_bot":     "🧹 Clean Bot",
-        "btn_cancel_fa":     "Cancel",
 
         # Inline keyboard buttons
         "btn_cancel_op":     "❌ Cancel Operation",
         "btn_raw":           "Send Raw File (no changes)",
         "btn_full_rar":      "Send as Single RAR File",
         "btn_multi_rar":     "Create Multi-File Archive",
-        "btn_19mb":          "19 MB Parts",
-        "btn_40mb":          "40 MB Parts",
-        "btn_900mb":         "900 MB Parts",
         "btn_split":         "✂️ Custom Split",
         "ask_split_size":    "✂️ Enter the size of each part in megabytes:\n\n📌 Allowed range: **19 to 900** MB\nExample: `50`",
         "split_invalid":     "❌ Invalid value!\nEnter a whole number between **19** and **900** MB:",
@@ -671,7 +685,7 @@ STRINGS = {
             "Seeds: {seeds} | Peers: {peers}",
         "torrent_ready":     "✅ Ready to process.",
 
-        # core_processing
+        # Processing
         "preparing_file":    "📦 Preparing file...",
         "sending":           "Sending...",
         "compressing_rar":   "Compressing into RAR...",
@@ -720,7 +734,6 @@ STRINGS = {
         "gh_btn_space":      "📊 Storage Info",
         "gh_btn_clear":      "🗑 Clear All Files",
 
-        "gh_guide_text":    "📖 **Step-by-Step Guide to Get a GitHub Token**",
         "gh_guide_page1":
             "📖 **Step-by-Step Guide to Get a GitHub Token**\n\n"
             "GitHub is a free online service that gives you cloud storage.\n\n"
@@ -933,7 +946,7 @@ STRINGS = {
         "admin_deleted":     "✅ Access revoked.",
         "admin_not_found":   "❌ Not found.",
 
-        # action texts in progress bar
+        # Progress bar labels
         "receiving_file":    "Receiving file",
         "sending_video":     "Sending video",
         "sending_audio":     "Sending audio",
@@ -941,32 +954,53 @@ STRINGS = {
         "btn_audio_only":    "🎵 Audio only ({size})",
         "audio_only_label":  "Audio",
         "quality_not_available": "❌ Not available",
-        "torrent_dl_action": "Torrent download",
 
         # Instagram
         "ig_received":       "📸 Instagram post received.",
         "ig_select_action":  "📸 **Instagram Post**\n\nChoose how to send:",
 
-        # MITM
+        # Drive downloader app
         "mitm_caption":      "📲 **MITM Drive Downloader**\nUse this app if browser download doesn't work",
-    }
+
+        # Shared bits
+        "unknown":           "Unknown",
+        "receiving_link":    "Receiving link {i}",
+        "cancel_requested":  "⚠️ Cancellation requested.",
+        "admin_invalid_number": "❌ Enter a number.",
+
+        # Errors
+        "empty_file":        "❌ The file is empty.",
+        "url_not_allowed":   "❌ This link is not allowed.",
+        "no_disk_space":     "❌ Not enough disk space on the server. Please try again later.",
+        "tg_too_large":
+            "❌ This file is larger than 2 GB and cannot be sent on Telegram.\n"
+            "Use the split option instead.",
+        "tg_download_failed": "❌ Failed to receive the file from Telegram. Please send it again.",
+        "rar_failed":        "❌ RAR compression failed.",
+        "yt_download_failed": "❌ YouTube download failed.",
+        "ig_download_failed": "❌ Instagram download failed.",
+        "torrent_invalid":   "❌ Invalid torrent file or magnet link.",
+        "torrent_metadata_timeout": "❌ Could not fetch torrent metadata. The torrent probably has no seeds.",
+        "gh_size_limit":
+            "❌ **File size exceeds 2 GB ({size:.2f} GB)**\n"
+            "GitHub upload is allowed for files up to 2 GB.",
+        "gh_token_invalid":  "Invalid token (code: {code})",
+        "gh_push_failed":    "git push failed for part {i} (code {code}): {err}",
+        "gd_code_rejected":  "Invalid code ({code}): {detail}",
+    },
 }
 
-
-def get_lang(user_id, users_db=None):
-    # / دریافت زبان کاربر از دیتابیس — Get user language from database
-    if users_db is None:
-        return "fa"
-    uid = str(user_id)
-    d = users_db.get(uid, {})
-    if isinstance(d, dict):
-        return d.get("lang", "fa")
-    return "fa"
+LANGS = tuple(STRINGS)
 
 
-def T(lang, key, **kwargs):
-    # / ترجمه رشته بر اساس زبان — Translate string based on language
-    text = STRINGS.get(lang, STRINGS["fa"]).get(key)
+def tr(lang, key, /, **params):
+    table = STRINGS.get(lang) or STRINGS[DEFAULT_LANG]
+    text = table.get(key)
     if text is None:
-        text = STRINGS["fa"].get(key, key)
-    return text.format(**kwargs) if kwargs else text
+        text = STRINGS[DEFAULT_LANG].get(key, key)
+    return text.format(**params) if params else text
+
+
+def variants(key):
+    """The same string in every language, e.g. to match a menu button."""
+    return {table[key] for table in STRINGS.values() if key in table}

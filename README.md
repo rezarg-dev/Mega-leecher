@@ -11,7 +11,7 @@
 
 **A powerful Telegram bot for downloading, processing and managing files**
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square&logo=python)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
 [![Pyrogram](https://img.shields.io/badge/Pyrogram-2.x-blue?style=flat-square)](https://pyrogram.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux-orange?style=flat-square&logo=linux)](https://linux.org)
@@ -37,15 +37,16 @@ Every contribution, no matter the size, helps keep this project alive. ❤️
 ## ✨ Features
 
 ### 📦 File Processing
-- **Split** files into custom-sized parts (19-900MB, your choice)
+- **Split** files into RAR parts of any size between 19 MB and 900 MB
 - **Compress** into RAR archives with optional password protection
-- **Send raw** files without any modification
-- **Multi-file archives** — combine multiple files into one RAR
+- **Send raw** files without any modification (videos are sent streamable, with a thumbnail)
+- **Multi-file archives** — combine several files, links and videos into one RAR
 
 ### ⬇️ Downloading
 - **Direct links** — any HTTP/HTTPS download link up to 2GB
 - **Torrents** — magnet links or `.torrent` files
-- **YouTube** — download videos up to 4K or audio-only (MP3)
+- **YouTube** — videos from 360p up to 4K, or audio-only (MP3), with the size of each quality shown up front
+- **Instagram** — public posts and reels
 
 ### ☁️ Cloud Storage
 - **GitHub** — upload files and get direct download links (up to 15GB free with your own token)
@@ -54,8 +55,14 @@ Every contribution, no matter the size, helps keep this project alive. ❤️
 ### 🔐 Access Control
 - Subscription-based access with expiry dates
 - Separate YouTube subscription tier
-- Daily upload quotas per user
+- Daily quotas for YouTube downloads and cloud uploads
 - Admin panel for user management
+- Persian and English interface, chosen per user
+
+### ⚙️ Under the Hood
+- Every job runs in the background and can be cancelled at any stage
+- One job at a time per user, with a server-wide limit so a small VPS is not overwhelmed
+- Temporary files are removed after every job and on every start
 
 ---
 
@@ -63,13 +70,11 @@ Every contribution, no matter the size, helps keep this project alive. ❤️
 
 | Requirement | Version |
 |-------------|---------|
-| OS | Ubuntu 20.04+ / Debian 11+ |
-| Python | 3.9+ |
-| Node.js | 20.x |
+| OS | Ubuntu 22.04+ / Debian 12+ |
+| Python | 3.10+ |
+| Node.js | 22.x (installed automatically, used by the YouTube token provider) |
 | RAM | 1GB minimum (2GB recommended) |
 | Root access | Required |
-
-> ℹ️ A local **PO Token Provider** ([bgutil-ytdlp-pot-provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider)) is installed and run automatically by `setup.sh`. It's required for accurate YouTube quality/size detection and for downloading premium formats (1080p+, 4K).
 
 ---
 
@@ -85,11 +90,25 @@ bash setup.sh
 ```
 
 The installer will automatically:
-1. Install all system dependencies (apt packages, Node.js, Python packages)
-2. Ask for your Telegram bot credentials
-3. Optionally configure Google Drive support
-4. Set up a systemd service that starts automatically on boot
-5. Install the `mega-leecher` management command
+1. Install all system dependencies (apt packages, Node.js, Deno, Python packages)
+2. Build the YouTube PO Token provider and run it as a service
+3. Ask for your Telegram bot credentials
+4. Optionally configure Google Drive support
+5. Set up a systemd service that starts automatically on boot
+6. Install the `mega-leecher` management command
+
+### Upgrading an existing installation
+
+Run the same two commands again on the server. The installer upgrades in place:
+`config.env`, the user databases, `cookies.txt` and the Telegram session are never touched.
+
+```bash
+git clone https://github.com/rezarg-dev/Mega-leecher.git
+bash Mega-leecher/setup.sh
+```
+
+> ⚠️ Coming from version 1.x (the single `bot.py`)? Upgrade with the commands above, **not** with
+> option 9 of the old `mega-leecher` menu — the old updater only knows about three files.
 
 ---
 
@@ -97,7 +116,7 @@ The installer will automatically:
 
 After installation your config is stored at `/opt/mega-leecher/config.env`.
 
-Copy the example file to get started:
+For a manual setup, copy the example file to get started:
 ```bash
 cp config.env.example config.env
 nano config.env
@@ -112,7 +131,7 @@ nano config.env
 | `PURCHASE_USERNAME` | Telegram username shown for subscription purchases |
 | `GOOGLE_CLIENT_ID` | Google OAuth Client ID (optional) |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret (optional) |
-| `INSTALL_DIR` | Installation directory (default: `/opt/mega-leecher`) |
+| `MAX_CONCURRENT_JOBS` | How many jobs of regular users run at once (optional, default `4`) |
 
 > ⚠️ `config.env` is listed in `.gitignore` — never commit it to version control.
 
@@ -138,9 +157,9 @@ This opens an interactive management panel with a colored menu:
 | 6 | Setup Google Drive |
 | 7 | Disable Google Drive |
 | 8 | Clean temp files |
-| 9 | Update from GitHub |
-| 10 | Reinstall |
-| 11 | Uninstall completely |
+| 9 | Update from GitHub (rolls back by itself if the new version does not start) |
+| 10 | Reinstall (settings and user data are kept) |
+| 11 | Uninstall completely (a backup of your settings and data is saved to `/root` first) |
 
 ---
 
@@ -240,8 +259,23 @@ Install the **"Get cookies.txt LOCALLY"** extension from the Firefox Add-ons sto
 ### Step 4 — Place the file on your server
 ```bash
 cp cookies.txt /opt/mega-leecher/cookies.txt
-systemctl restart mega-leecher
 ```
+
+No restart is needed: the file is read for every download.
+
+---
+
+## 📣 Broadcasting an Announcement
+
+`broadcast.py` sends a message to every user in the database, each in the language they chose.
+Edit the `MESSAGES` texts at the top of the file, then run it from the install directory:
+
+```bash
+cd /opt/mega-leecher
+./venv/bin/python broadcast.py
+```
+
+The script uses its own Telegram session, so the bot keeps running while it works.
 
 ---
 
@@ -249,14 +283,36 @@ systemctl restart mega-leecher
 
 ```
 Mega-leecher/
-├── bot.py                  # Main bot — handlers, processing, cloud upload
-├── config.py               # Configuration loader (reads config.env)
+├── bot.py                  # Entry point
+├── broadcast.py            # Send an announcement to all users
+├── leecher/
+│   ├── main.py             # Startup and shutdown
+│   ├── client.py           # The Pyrogram client
+│   ├── config.py           # Settings (reads config.env) and limits
+│   ├── lang.py             # Every user-facing text, Persian and English
+│   ├── db.py               # Users, GitHub and Drive accounts (JSON files)
+│   ├── state.py            # Pending files, open prompts, running jobs
+│   ├── jobs.py             # The pipeline: queue → fetch → deliver
+│   ├── net.py              # Direct-link downloads
+│   ├── youtube.py          # YouTube / Instagram through yt-dlp
+│   ├── torrent.py          # Torrents through libtorrent
+│   ├── archive.py          # RAR and ZIP packaging
+│   ├── media.py            # Sending files back to Telegram
+│   ├── github.py           # GitHub storage (REST API + git)
+│   ├── gdrive.py           # Google Drive (OAuth + resumable upload)
+│   ├── ui.py               # Keyboards, message helpers, progress
+│   ├── utils.py            # File names, subprocesses, formatting
+│   └── handlers/           # Telegram handlers, one module per area
+├── setup.sh                # Automated install / upgrade script
+├── mega-leecher.sh         # Management CLI (installed as `mega-leecher`)
+├── mega-leecher.service    # Systemd unit for manual installs
 ├── config.env.example      # Configuration template
-├── setup.sh                # Automated install & management script
-├── mega-leecher.service    # Systemd service unit file
-├── .gitignore              # Git ignore rules
+├── requirements.txt
 └── README.md
 ```
+
+Runtime files — `config.env`, `users_db.json`, `github_db.json`, `drive_db.json`, `cookies.txt`,
+the session file and `temp/` — live next to `bot.py` and are ignored by git.
 
 ---
 
@@ -269,30 +325,25 @@ If you prefer to install manually without the setup script:
 apt update && apt install -y python3 python3-pip python3-venv python3-libtorrent \
     git ffmpeg rar unrar unzip zip p7zip-full
 
-# 2. Install Node.js 20
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt install -y nodejs
-
-# 3. Create directory and venv
-mkdir -p /opt/mega-leecher
+# 2. Get the code
+git clone https://github.com/rezarg-dev/Mega-leecher.git /opt/mega-leecher
 cd /opt/mega-leecher
+
+# 3. Create the venv (system packages are needed for libtorrent)
 python3 -m venv venv --system-site-packages
+./venv/bin/pip install -r requirements.txt
 
-# 4. Install Python dependencies
-./venv/bin/pip install pyrogram tgcrypto yt-dlp bgutil-ytdlp-pot-provider aiohttp httpx
-
-# 5. Set up the PO Token Provider (required for YouTube quality/size detection and 4K)
-git clone --branch 1.3.2 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git pot-provider
-cd pot-provider/server && npm ci && npx tsc && cd ..
-node pot-provider/server/build/main.js &   # keep this running (use systemd in production)
-
-# 6. Configure
+# 4. Configure
 cp config.env.example config.env
 nano config.env
 
-# 7. Run
+# 5. Run
 ./venv/bin/python bot.py
 ```
+
+YouTube also needs [Deno](https://deno.com) and the
+[PO Token provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) server, in the same
+version as the `bgutil-ytdlp-pot-provider` line in `requirements.txt`. `setup.sh` takes care of both.
 
 ---
 

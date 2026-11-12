@@ -1,30 +1,26 @@
-# ── Sensitive config ──────────────────────────────────
+# Sensitive config
 config.env
 
-# ── Runtime databases (auto-created on first run) ─────
+# Runtime data (created on first run)
 users_db.json
 github_db.json
 drive_db.json
-
-# ── Session files ─────────────────────────────────────
+*.json.broken-*
+cookies.txt
 *.session
 *.session-journal
 
-# ── Temp / downloads ──────────────────────────────────
+# Working directories
 temp/
-downloads/
-
-# ── YouTube cookies (user-specific) ───────────────────
-cookies.txt
-
-# ── Python ────────────────────────────────────────────
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
 venv/
-.env
+pot-provider/
+.backup/
+.version
 
-# ── OS ────────────────────────────────────────────────
+# Python
+__pycache__/
+*.py[cod]
+
+# OS
 .DS_Store
 Thumbs.db
