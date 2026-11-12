@@ -7,7 +7,7 @@ app = Client(
     api_id=config.API_ID,
     api_hash=config.API_HASH,
     bot_token=config.BOT_TOKEN,
-    workdir=config.BASE_DIR,
+    workdir=config.DATA_DIR,
     # Plain Markdown: file names and titles must never be parsed as HTML.
     parse_mode=enums.ParseMode.MARKDOWN,
 )

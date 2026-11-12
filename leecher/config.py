@@ -4,7 +4,10 @@ import os
 import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_FILE = os.environ.get("MEGA_LEECHER_CONFIG") or os.path.join(BASE_DIR, "config.env")
+# In a container the data lives in a mounted volume, away from the code.
+DATA_DIR = os.environ.get("MEGA_LEECHER_DATA") or BASE_DIR
+CONFIG_FILE = os.environ.get("MEGA_LEECHER_CONFIG") or os.path.join(DATA_DIR, "config.env")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 
 def _fail(message):
@@ -13,9 +16,9 @@ def _fail(message):
 
 
 def _read_env(path):
-    if not os.path.isfile(path):
-        _fail("config.env not found. Copy config.env.example to config.env and fill in your values.")
     values = {}
+    if not os.path.isfile(path):
+        return values
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -32,10 +35,15 @@ def _read_env(path):
 _cfg = _read_env(CONFIG_FILE)
 
 
+def _get(key):
+    """Environment variables win over config.env."""
+    return os.environ.get(key) or _cfg.get(key, "")
+
+
 def _required(key):
-    value = _cfg.get(key, "")
+    value = _get(key)
     if not value or value.endswith("_here"):
-        _fail(f"'{key}' is not set in config.env. Please fill in all required values.")
+        _fail(f"'{key}' is not set. Put it in config.env or pass it as an environment variable.")
     return value
 
 
@@ -44,17 +52,17 @@ def _required_int(key):
     try:
         return int(value)
     except ValueError:
-        _fail(f"'{key}' in config.env must be a number.")
+        _fail(f"'{key}' must be a number.")
 
 
 def _optional_int(key, default, minimum=1):
-    value = _cfg.get(key, "")
+    value = _get(key)
     if not value:
         return default
     try:
         return max(minimum, int(value))
     except ValueError:
-        _fail(f"'{key}' in config.env must be a number.")
+        _fail(f"'{key}' must be a number.")
 
 
 # Telegram
@@ -65,19 +73,19 @@ ADMIN_ID = _required_int("ADMIN_ID")
 PURCHASE_USERNAME = _required("PURCHASE_USERNAME")
 
 # Google Drive (optional)
-GOOGLE_CLIENT_ID = _cfg.get("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = _cfg.get("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_CLIENT_ID = _get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = _get("GOOGLE_CLIENT_SECRET")
 
 # How many jobs of regular users may run at the same time.
 MAX_CONCURRENT_JOBS = _optional_int("MAX_CONCURRENT_JOBS", 4)
 
 # Paths
-TEMP_DIR = os.path.join(BASE_DIR, "temp")
-USERS_DB = os.path.join(BASE_DIR, "users_db.json")
-GITHUB_DB = os.path.join(BASE_DIR, "github_db.json")
-DRIVE_DB = os.path.join(BASE_DIR, "drive_db.json")
-COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")
-DRIVE_APK = os.path.join(BASE_DIR, "MITM.Drive.Downloader.v1-android.apk")
+TEMP_DIR = os.path.join(DATA_DIR, "temp")
+USERS_DB = os.path.join(DATA_DIR, "users_db.json")
+GITHUB_DB = os.path.join(DATA_DIR, "github_db.json")
+DRIVE_DB = os.path.join(DATA_DIR, "drive_db.json")
+COOKIES_FILE = os.path.join(DATA_DIR, "cookies.txt")
+DRIVE_APK = os.path.join(DATA_DIR, "MITM.Drive.Downloader.v1-android.apk")
 
 # Limits
 MB = 1024 * 1024

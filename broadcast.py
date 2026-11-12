@@ -77,7 +77,7 @@ async def broadcast(user_ids):
     sent = skipped = failed = 0
     total = len(user_ids)
     async with Client("broadcast_session", api_id=config.API_ID, api_hash=config.API_HASH,
-                      bot_token=config.BOT_TOKEN, workdir=config.BASE_DIR) as app:
+                      bot_token=config.BOT_TOKEN, workdir=config.DATA_DIR) as app:
         for n, uid in enumerate(user_ids, 1):
             try:
                 await deliver(app, uid)
