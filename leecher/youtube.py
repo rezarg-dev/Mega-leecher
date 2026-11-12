@@ -79,9 +79,13 @@ def _audio_size(formats, duration):
     return max((_bytes(f, duration) for f in audio), default=0)
 
 
+def _is_4k(fmt):
+    # Wide videos are 4K by width only: 3840x1920 is still sold as "2160p".
+    return (fmt.get("height") or 0) >= 2000 or (fmt.get("width") or 0) >= 3800
+
+
 def _video_size(formats, duration, wanted):
-    video = [f for f in formats
-             if _has(f, "vcodec") and not _has(f, "acodec") and wanted(f.get("height") or 0)]
+    video = [f for f in formats if _has(f, "vcodec") and not _has(f, "acodec") and wanted(f)]
     if not video:
         return None
     best = max(video, key=lambda f: (f.get("height") or 0, _bytes(f, duration)))
@@ -90,9 +94,9 @@ def _video_size(formats, duration, wanted):
 
 def sizes(formats, duration):
     """Estimated download size per quality button; None means not available."""
-    result = {q: _video_size(formats, duration, lambda h, q=int(q): 0 < h <= q) or 0
+    result = {q: _video_size(formats, duration, lambda f, q=int(q): 0 < (f.get("height") or 0) <= q) or 0
               for q in QUALITIES}
-    result["2160"] = _video_size(formats, duration, lambda h: h >= 2000)
+    result["2160"] = _video_size(formats, duration, _is_4k)
     result["mp3"] = _audio_size(formats, duration)
     return result
 
@@ -121,7 +125,7 @@ async def fetch_info(url):
         *YT_DLP,
         "--print", "%(title)j",
         "--print", "%(duration)j",
-        "--print", "%(formats.:.{height,filesize,filesize_approx,tbr,vcodec,acodec})j",
+        "--print", "%(formats.:.{width,height,filesize,filesize_approx,tbr,vcodec,acodec})j",
         "--no-playlist", *_js_runtime(), "-q", "--no-warnings",
         *_cookies(workdir), url,
     ]
@@ -159,8 +163,11 @@ def _format_args(item):
         # "worst" as the fallback: never pull a full video just to throw the picture away.
         selection = ["-f", "bestaudio/worst", "-x", "--audio-format", "mp3"]
     else:
-        video = "bestvideo[height>=2000]" if item.quality == "2160" else f"bestvideo[height<={item.quality}]"
-        selection = ["-f", f"{video}+bestaudio/bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
+        if item.quality == "2160":
+            video = "bestvideo[height>=2000]+bestaudio/bestvideo[width>=3800]+bestaudio"
+        else:
+            video = f"bestvideo[height<={item.quality}]+bestaudio"
+        selection = ["-f", f"{video}/bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
     return [*selection, "--no-playlist", *_js_runtime()]
 
 
